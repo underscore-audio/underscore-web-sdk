@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Underscore SDK - Hello World</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #e0e0e0;
+    }
+    h1 { color: #86efac; margin-bottom: 8px; }
+    .subtitle { color: #888; margin-bottom: 24px; }
+    
+    /* Sections */
+    section {
+      background: #2a2a2a;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    section h2 {
+      font-size: 14px;
+      color: #888;
+      text-transform: uppercase;
+      margin: 0 0 12px 0;
+    }
+    
+    /* Inputs */
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #444;
+      border-radius: 4px;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      font-family: monospace;
+      margin-bottom: 8px;
+    }
+    
+    /* Buttons */
+    button {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: #86efac; color: #1a1a1a; }
+    .btn-primary:hover:not(:disabled) { background: #6de096; }
+    .btn-secondary { background: #444; color: #e0e0e0; }
+    .btn-secondary:hover:not(:disabled) { background: #555; }
+    .btn-danger { background: #ef4444; color: white; }
+    .btn-danger:hover:not(:disabled) { background: #dc2626; }
+    
+    /* Controls */
+    .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+    
+    /* Parameters */
+    .param {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+    .param label {
+      width: 100px;
+      font-size: 13px;
+      color: #aaa;
+    }
+    .param input[type="range"] {
+      flex: 1;
+      accent-color: #86efac;
+    }
+    .param .value {
+      width: 50px;
+      text-align: right;
+      font-family: monospace;
+      font-size: 12px;
+      color: #666;
+    }
+    
+    /* Generation */
+    textarea {
+      width: 100%;
+      height: 60px;
+      padding: 10px;
+      border: 1px solid #444;
+      border-radius: 4px;
+      background: #1a1a1a;
+      color: #e0e0e0;
+      resize: vertical;
+      margin-bottom: 8px;
+    }
+    
+    /* Log */
+    #log {
+      background: #111;
+      border-radius: 4px;
+      padding: 12px;
+      font-family: monospace;
+      font-size: 12px;
+      height: 150px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .log-info { color: #86efac; }
+    .log-error { color: #ef4444; }
+    .log-warn { color: #fbbf24; }
+    
+    /* Status */
+    #status {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      background: #333;
+    }
+    #status.ready { background: #166534; }
+    #status.playing { background: #1d4ed8; }
+    #status.error { background: #991b1b; }
+  </style>
+</head>
+<body>
+  <h1>Underscore SDK</h1>
+  <p class="subtitle">Hello World Example - All SDK Capabilities</p>
+
+  <!-- Configuration -->
+  <section>
+    <h2>1. Configuration</h2>
+    <input type="password" id="apiKey" placeholder="API Key (us_...)" />
+    <input type="text" id="compositionId" placeholder="Composition ID (cmp_...)" />
+    <small style="color: #666;">Get these from <a href="https://underscore.audio" style="color: #86efac;">underscore.audio</a></small>
+  </section>
+
+  <!-- Playback -->
+  <section>
+    <h2>2. Playback</h2>
+    <div class="controls">
+      <button id="initBtn" class="btn-primary">Initialize Audio</button>
+      <button id="loadBtn" class="btn-secondary" disabled>Load Synth</button>
+      <button id="playBtn" class="btn-primary" disabled>Play</button>
+      <button id="stopBtn" class="btn-danger" disabled>Stop</button>
+      <button id="muteBtn" class="btn-secondary" disabled>Mute</button>
+    </div>
+    <p style="margin-top: 12px;">Status: <span id="status">Not initialized</span></p>
+  </section>
+
+  <!-- Parameters -->
+  <section>
+    <h2>3. Parameters</h2>
+    <div id="params">
+      <p style="color: #666; font-size: 13px;">Load a synth to see parameters</p>
+    </div>
+    <button id="resetBtn" class="btn-secondary" disabled style="margin-top: 8px;">Reset to Defaults</button>
+  </section>
+
+  <!-- Generation -->
+  <section>
+    <h2>4. Generation (AI)</h2>
+    <textarea id="prompt" placeholder="Describe the sound you want...&#10;e.g., warm analog pad with slow filter sweep"></textarea>
+    <div class="controls">
+      <button id="generateBtn" class="btn-primary" disabled>Generate New Synth</button>
+    </div>
+  </section>
+
+  <!-- Log -->
+  <section>
+    <h2>Log</h2>
+    <div id="log"></div>
+  </section>
+
+  <script type="module" src="/main.ts"></script>
+</body>
+</html>

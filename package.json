@@ -1,0 +1,67 @@
+{
+  "name": "@underscore/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "TypeScript SDK for loading and playing Underscore synths",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "bin": {
+    "underscore-sdk": "./dist/bin/copy-assets.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "npm run test:e2e:api && npm run test:e2e:browser && npm run test:e2e:docs",
+    "test:e2e:api": "vitest run tests/e2e/full-journey.test.ts",
+    "test:e2e:browser": "playwright test tests/e2e/browser-audio.test.ts",
+    "test:e2e:docs": "vitest run tests/e2e/docs-validation.test.ts",
+    "test:e2e:ui": "playwright test --ui",
+    "lint": "eslint src",
+    "fmt": "prettier --write src/",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "supersonic-scsynth": "^0.14.0"
+  },
+  "dependencies": {
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.41.0",
+    "@types/node": "^20.11.0",
+    "msw": "^2.1.0",
+    "prettier": "^3.2.4",
+    "supersonic-scsynth": "^0.14.0",
+    "typescript": "^5.3.3",
+    "typescript-eslint": "^7.0.0",
+    "vitest": "^1.2.0"
+  },
+  "keywords": [
+    "synthesizer",
+    "audio",
+    "supercollider",
+    "webassembly",
+    "music"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/underscore-audio/underscore-web-sdk.git"
+  },
+  "homepage": "https://underscore.audio/docs/web-sdk",
+  "bugs": {
+    "url": "https://github.com/underscore-audio/underscore-web-sdk/issues"
+  }
+}

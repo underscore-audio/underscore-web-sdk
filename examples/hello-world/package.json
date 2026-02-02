@@ -1,0 +1,19 @@
+{
+  "name": "underscore-hello-world",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "copy-assets": "npx underscore-sdk ./public/supersonic"
+  },
+  "dependencies": {
+    "@underscore/sdk": "file:../..",
+    "supersonic-scsynth": "^0.14.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vite": "^5.0.0"
+  }
+}
