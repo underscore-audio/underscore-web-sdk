@@ -1,34 +1,37 @@
 # @underscore/sdk
 
-TypeScript SDK for loading and playing [Underscore](https://underscore.audio) synths in web applications.
+TypeScript SDK for integrating [Underscore](https://underscore.audio) AI-generated synthesizers into web applications.
 
-> **Full documentation:** [underscore.audio/docs/web-sdk](https://underscore.audio/docs/web-sdk)
+[![npm version](https://img.shields.io/npm/v/@underscore/sdk)](https://www.npmjs.com/package/@underscore/sdk)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+
+## Features
+
+- Load and play AI-generated synthesizers in the browser
+- Real-time parameter control
+- Generate new synths with natural language
+- Parameter automation support
+- Full TypeScript support
+- Works with React, Vue, Svelte, vanilla JS, and any web framework
 
 ## Installation
-
-### From npm (when published)
 
 ```bash
 npm install @underscore/sdk supersonic-scsynth
 ```
 
-### From Private GitHub Repo
-
-Until the SDK is published to npm, install from the GitHub repo:
+<details>
+<summary>Installing from GitHub (private repo access)</summary>
 
 ```bash
-# Clone the SDK repo (you need access)
+# Clone and reference locally
 git clone https://github.com/underscore-audio/underscore-web-sdk.git
+# In package.json: "@underscore/sdk": "file:../path/to/underscore-web-sdk"
 
-# In your project's package.json, reference it locally:
-# "@underscore/sdk": "file:../path/to/underscore-web-sdk"
-```
-
-Or reference it directly via GitHub (if you have access):
-
-```bash
+# Or install directly from GitHub
 npm install github:underscore-audio/underscore-web-sdk supersonic-scsynth
 ```
+</details>
 
 ## Quick Start
 
@@ -40,7 +43,7 @@ const client = new Underscore({
   wasmBaseUrl: '/supersonic/',
 });
 
-// Must be called from user interaction (click/tap)
+// Initialize from user interaction (required by browsers)
 document.getElementById('play')?.addEventListener('click', async () => {
   await client.init();
   const synth = await client.loadSynth('cmp_abc123');
@@ -48,53 +51,32 @@ document.getElementById('play')?.addEventListener('click', async () => {
 });
 ```
 
-## Setup Guide
+## Setup
 
 ### 1. Get an API Key
 
-Sign up at [underscore.audio](https://underscore.audio) and create an API key in your account settings.
+Sign up at [underscore.audio](https://underscore.audio) and create an API key in Settings.
 
-### 2. Install Dependencies
-
-```bash
-npm install supersonic-scsynth
-# Plus the SDK (see Installation section above)
-```
-
-### 3. Copy WASM Assets
-
-The SDK uses WebAssembly for audio synthesis. Copy the required files to your public directory:
+### 2. Copy WASM Assets
 
 ```bash
 npx underscore-sdk ./public/supersonic
 ```
 
-This creates:
-```
-public/supersonic/
-  wasm/
-    manifest.json
-    scsynth-nrt.wasm
-  workers/
-    scsynth_audio_worklet.js
-    (other worker files)
-```
+### 3. Configure Server Headers
 
-### 4. Configure Server Headers
-
-**Required for SharedArrayBuffer/WASM to work:**
+Your server must send these headers for WebAssembly to work:
 
 ```
 Cross-Origin-Opener-Policy: same-origin
 Cross-Origin-Embedder-Policy: require-corp
 ```
 
-#### Vite
+<details>
+<summary>Vite configuration</summary>
 
 ```typescript
 // vite.config.ts
-import { defineConfig } from 'vite';
-
 export default defineConfig({
   server: {
     headers: {
@@ -102,14 +84,15 @@ export default defineConfig({
       'Cross-Origin-Embedder-Policy': 'require-corp',
     },
   },
-  // Recommended: exclude from optimization
   optimizeDeps: {
     exclude: ['@underscore/sdk', 'supersonic-scsynth'],
   },
 });
 ```
+</details>
 
-#### Next.js
+<details>
+<summary>Next.js configuration</summary>
 
 ```javascript
 // next.config.js
@@ -125,136 +108,67 @@ module.exports = {
   },
 };
 ```
+</details>
 
-## Complete Example
+## Example
 
-See [`examples/hello-world/`](./examples/hello-world/) for a minimal working example that demonstrates all SDK capabilities:
-
-- Initialize audio engine
-- Load and play synths
-- Control parameters in real-time
-- Generate new synths with natural language
-- Mute/unmute
-
-To run it:
+See [`examples/`](./examples/) for a complete working example:
 
 ```bash
-cd examples/hello-world
+cd examples
 npm install
+npm run copy-assets
 npm run dev
 ```
 
 ## API Reference
 
-### Underscore Client
+### Client
 
 ```typescript
 const client = new Underscore({
-  apiKey: 'us_...',              // Required
-  wasmBaseUrl: '/supersonic/',   // Required: path to WASM files
-  baseUrl: 'https://underscore.audio', // Optional (default)
-  logLevel: 'none',              // Optional: 'debug' | 'info' | 'warn' | 'error' | 'none'
+  apiKey: 'us_...',                      // Required
+  wasmBaseUrl: '/supersonic/',           // Required
+  baseUrl: 'https://underscore.audio',   // Optional
+  logLevel: 'none',                      // Optional: debug | info | warn | error | none
 });
 
-// Initialize audio (call from user gesture)
-await client.init();
-
-// Check if initialized
-client.isInitialized(); // boolean
-
-// List synths in a composition
-const synths = await client.listSynths('cmp_abc123');
-
-// Get synth metadata
-const metadata = await client.getSynth('cmp_abc123', 'synth_name');
-
-// Load synth for playback
-const synth = await client.loadSynth('cmp_abc123', 'synth_name');
-// Or load the latest synth:
-const synth = await client.loadSynth('cmp_abc123');
+await client.init();                     // Initialize audio engine
+client.isInitialized();                  // Check status
+await client.listSynths('cmp_...');      // List synths in composition
+await client.loadSynth('cmp_...', name); // Load synth for playback
 ```
 
-### Synth Playback
+### Synth
 
 ```typescript
-// Play
-await synth.play();
+await synth.play();                      // Start playback
+synth.stop();                            // Stop playback
+synth.isPlaying();                       // Check if playing
 
-// Stop
-synth.stop();
+synth.setParam('cutoff', 2000);          // Set parameter
+synth.setParams({ cutoff: 2000 });       // Set multiple
+synth.resetParams();                     // Reset to defaults
 
-// Check state
-synth.isPlaying(); // boolean
-
-// Synth metadata
-synth.name;        // string
-synth.description; // string
-synth.params;      // ParamMetadata[]
-synth.hasSamples;  // boolean
+synth.name;                              // Synth name
+synth.description;                       // Description
+synth.params;                            // ParamMetadata[]
 ```
 
-### Parameter Control
+### Generation
 
 ```typescript
-// Set single parameter
-synth.setParam('cutoff', 2000);
-
-// Set multiple parameters
-synth.setParams({ cutoff: 2000, resonance: 0.7 });
-
-// Reset to defaults
-synth.resetParams();
-
-// Get parameter info
-synth.params.forEach(param => {
-  console.log(`${param.name}: ${param.min}-${param.max} (default: ${param.default})`);
-});
-```
-
-### Generation (AI)
-
-Generate new synths using natural language:
-
-```typescript
-for await (const event of client.generate('cmp_abc123', 'warm analog pad')) {
-  if (event.type === 'thinking') {
-    console.log('AI:', event.content);
-  } else if (event.type === 'progress') {
-    console.log('Phase:', event.content);
-  } else if (event.type === 'ready') {
-    // event.synth is ready to play
-    await event.synth.play();
-  } else if (event.type === 'error') {
-    console.error('Failed:', event.error);
+for await (const event of client.generate('cmp_...', 'warm analog pad')) {
+  switch (event.type) {
+    case 'thinking': console.log(event.content); break;
+    case 'progress': console.log(event.content); break;
+    case 'ready':    await event.synth.play(); break;
+    case 'error':    console.error(event.error); break;
   }
 }
 ```
 
-### Automation
-
-For advanced parameter automation:
-
-```typescript
-import { AutomationRunner } from '@underscore/sdk';
-
-// If the synth has an automation plan
-if (synth.automation) {
-  const runner = new AutomationRunner(synth, {
-    onUpdate: (values) => {
-      // values is a Map<string, number> of current param values
-    },
-    onComplete: () => {
-      console.log('Automation finished');
-    },
-  });
-  
-  runner.start();
-  // runner.stop();
-  // runner.seek(timeInSeconds);
-}
-```
-
-## Error Handling
+### Error Handling
 
 ```typescript
 import { ApiError, AudioError, SynthError, ValidationError } from '@underscore/sdk';
@@ -262,80 +176,50 @@ import { ApiError, AudioError, SynthError, ValidationError } from '@underscore/s
 try {
   await client.loadSynth('invalid');
 } catch (error) {
-  if (error instanceof ApiError) {
-    // HTTP error (401, 404, etc.)
-  } else if (error instanceof ValidationError) {
-    // API response didn't match expected schema
-  } else if (error instanceof AudioError) {
-    // WebAudio/WASM initialization failed
-  } else if (error instanceof SynthError) {
-    // Synth loading or playback error
-  }
+  if (error instanceof ApiError) { /* HTTP error */ }
+  if (error instanceof ValidationError) { /* Schema mismatch */ }
+  if (error instanceof AudioError) { /* WASM/WebAudio error */ }
+  if (error instanceof SynthError) { /* Playback error */ }
 }
 ```
 
-## Troubleshooting
-
-### "Audio not initialized"
-
-Call `client.init()` from a user interaction (click/tap) due to browser autoplay policies.
-
-### WASM files not loading
-
-1. Run `npx underscore-sdk ./public/supersonic`
-2. Ensure your server sends the COOP/COEP headers
-3. Check browser console for specific errors
-
-### No sound
-
-1. Verify `client.isInitialized()` returns `true`
-2. Verify `synth.isPlaying()` returns `true`
-3. Check browser audio permissions
-4. Check system volume
-
-### "Composition not found"
-
-- Verify the composition ID format: `cmp_...`
-- Ensure the composition visibility is "Unlisted" or "Public"
-- Verify your API key is valid
-
 ## Browser Support
 
-| Browser | Version | Notes |
-|---------|---------|-------|
-| Chrome | 80+ | Full support |
-| Firefox | 79+ | Full support |
-| Safari | 15.4+ | Full support |
-| Edge | 80+ | Full support |
-| iOS Safari | 15.4+ | Requires user interaction |
+| Browser | Version |
+|---------|---------|
+| Chrome | 80+ |
+| Firefox | 79+ |
+| Safari | 15.4+ |
+| Edge | 80+ |
+| iOS Safari | 15.4+ |
 
-**Required browser features:** SharedArrayBuffer, AudioWorklet, WebAssembly
+Requires: SharedArrayBuffer, AudioWorklet, WebAssembly
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| "Audio not initialized" | Call `client.init()` from a click handler |
+| WASM not loading | Run `npx underscore-sdk ./public/supersonic` and check headers |
+| No sound | Check `client.isInitialized()` and `synth.isPlaying()` |
+| "Composition not found" | Verify ID format (`cmp_...`) and visibility settings |
 
 ## Development
 
 ```bash
-# Install
-npm install
-
-# Build
-npm run build
-
-# Test
-npm test
-
-# Run demo
-cd demo && npm install && npm run dev
+npm install     # Install dependencies
+npm run build   # Build
+npm test        # Run tests (110 tests)
+npm run lint    # Lint
 ```
 
 ## API Compatibility
 
-This SDK is compatible with Underscore API v1.
+Compatible with Underscore API v1.
 
-- **API Documentation:** [underscore.audio/docs/web-sdk](https://underscore.audio/docs/web-sdk)
-- **API Contract:** [github.com/po-studio/underscore/blob/main/api/src/contracts/sdk-api.ts](https://github.com/po-studio/underscore/blob/main/api/src/contracts/sdk-api.ts)
-
-The SDK validates API responses at runtime using Zod schemas. If the API contract changes, the SDK will surface validation errors with clear messages indicating which fields have changed.
+- [API Documentation](https://underscore.audio/docs/web-sdk)
+- [API Contract](https://github.com/po-studio/underscore/blob/main/api/src/contracts/sdk-api.ts)
 
 ## License
 
-MIT
+[MIT](LICENSE)
