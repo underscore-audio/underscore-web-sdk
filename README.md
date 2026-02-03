@@ -327,6 +327,15 @@ npm test
 cd demo && npm install && npm run dev
 ```
 
+## API Compatibility
+
+This SDK is compatible with Underscore API v1.
+
+- **API Documentation:** [underscore.audio/docs/web-sdk](https://underscore.audio/docs/web-sdk)
+- **API Contract:** [github.com/po-studio/underscore/blob/main/api/src/contracts/sdk-api.ts](https://github.com/po-studio/underscore/blob/main/api/src/contracts/sdk-api.ts)
+
+The SDK validates API responses at runtime using Zod schemas. If the API contract changes, the SDK will surface validation errors with clear messages indicating which fields have changed.
+
 ## License
 
 MIT
