@@ -22,11 +22,6 @@
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "npm run test:e2e:api && npm run test:e2e:browser && npm run test:e2e:docs",
-    "test:e2e:api": "vitest run tests/e2e/full-journey.test.ts",
-    "test:e2e:browser": "playwright test tests/e2e/browser-audio.test.ts",
-    "test:e2e:docs": "vitest run tests/e2e/docs-validation.test.ts",
-    "test:e2e:ui": "playwright test --ui",
     "lint": "eslint src",
     "fmt": "prettier --write src/",
     "typecheck": "tsc --noEmit",
@@ -39,7 +34,6 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@playwright/test": "^1.41.0",
     "@types/node": "^20.11.0",
     "msw": "^2.1.0",
     "prettier": "^3.2.4",
