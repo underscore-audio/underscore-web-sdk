@@ -139,7 +139,7 @@ export class Underscore {
 
     // Fetch and load the synthdef
     const synthdefData = await this.client.fetchSynthdef(compositionId, name);
-    await this.engine.loadSynthdefFromData(synthdefData, name);
+    await this.engine.loadSynthdefFromData(synthdefData);
 
     // Create and return the Synth object
     const synth = new Synth(
