@@ -110,7 +110,6 @@ export class AudioEngine {
     return this.sonic?.audioContext || null;
   }
 
-
   /**
    * Load a synthdef from binary data.
    */

@@ -37,13 +37,7 @@ import type {
 } from "./types.js";
 
 export * from "./types.js";
-export { Synth, type PlayOptions } from "./synth.js";
-export {
-  AutomationRunner,
-  clamp,
-  valueAtTime,
-  type AutomationRunnerOptions,
-} from "./automation.js";
+export { Synth } from "./synth.js";
 export {
   UnderscoreError,
   ApiError,
@@ -148,7 +142,6 @@ export class Underscore {
       name,
       metadata.description,
       metadata.params,
-      metadata.automation,
       metadata.samples
     );
     synth.markLoaded();

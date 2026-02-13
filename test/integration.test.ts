@@ -67,9 +67,7 @@ describe("SDK Integration", () => {
       expect(metadata.name).toBe(testData.synth.name);
       expect(metadata.description).toBe(testData.synth.description);
       expect(metadata.params).toHaveLength(3);
-      expect(metadata.automation).toBeDefined();
-      expect(metadata.automation?.durationSec).toBe(60);
-      expect(metadata.automation?.lanes).toHaveLength(1);
+      expect(metadata).not.toHaveProperty("automation");
     });
 
     it("throws ApiError for non-existent synth", async () => {
@@ -152,36 +150,6 @@ describe("SDK Integration", () => {
       synth.resetParams();
 
       // Params should be reset (tracked internally in the engine mock)
-    });
-  });
-
-  describe("Synth automation", () => {
-    it("detects synth has automation", async () => {
-      await client.init();
-      const synth = await client.loadSynth(testData.compositionId, testData.synth.name);
-
-      expect(synth.hasAutomation).toBe(true);
-      expect(synth.automation?.title).toBe("Slow Build");
-      expect(synth.automation?.durationSec).toBe(60);
-    });
-
-    it("can start and stop automation", async () => {
-      await client.init();
-      const synth = await client.loadSynth(testData.compositionId, testData.synth.name);
-
-      await synth.play({ automate: true });
-      expect(synth.isAutomationRunning()).toBe(true);
-
-      synth.stop();
-      expect(synth.isAutomationRunning()).toBe(false);
-    });
-
-    it("can disable automation on play", async () => {
-      await client.init();
-      const synth = await client.loadSynth(testData.compositionId, testData.synth.name);
-
-      await synth.play({ automate: false });
-      expect(synth.isAutomationRunning()).toBe(false);
     });
   });
 

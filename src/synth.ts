@@ -3,27 +3,11 @@
  *
  * Created by Underscore.loadSynth() or from generation results.
  * Provides methods for playback and parameter control.
- *
- * If the synth has an automation plan, it will automatically run
- * when play() is called and stop when stop() is called.
  */
 
 import type { AudioEngine } from "./audio.js";
-import type { ParamMetadata, AutomationPlan, SynthStateListener, SampleMetadata } from "./types.js";
-import { AutomationRunner, type AutomationRunnerOptions } from "./automation.js";
+import type { ParamMetadata, SynthStateListener, SampleMetadata } from "./types.js";
 import { SynthError } from "./errors.js";
-
-export interface PlayOptions {
-  /**
-   * Whether to run automation automatically. Default: true
-   */
-  automate?: boolean;
-
-  /**
-   * Time offset to start automation from (in seconds). Default: 0
-   */
-  automationStartAt?: number;
-}
 
 export class Synth {
   private engine: AudioEngine;
@@ -31,11 +15,8 @@ export class Synth {
   private _synthName: string;
   private _description: string;
   private _params: ParamMetadata[];
-  private _automation?: AutomationPlan;
   private _samples?: SampleMetadata[];
   private _loaded: boolean = false;
-  private _automationRunner: AutomationRunner | null = null;
-  private _automationOptions: AutomationRunnerOptions = {};
 
   constructor(
     engine: AudioEngine,
@@ -43,7 +24,6 @@ export class Synth {
     synthName: string,
     description: string,
     params: ParamMetadata[],
-    automation?: AutomationPlan,
     samples?: SampleMetadata[]
   ) {
     this.engine = engine;
@@ -51,7 +31,6 @@ export class Synth {
     this._synthName = synthName;
     this._description = description;
     this._params = params;
-    this._automation = automation;
     this._samples = samples;
   }
 
@@ -84,13 +63,6 @@ export class Synth {
   }
 
   /**
-   * Optional automation plan.
-   */
-  get automation(): AutomationPlan | undefined {
-    return this._automation;
-  }
-
-  /**
    * Optional audio samples used by this synth.
    */
   get samples(): SampleMetadata[] | undefined {
@@ -102,13 +74,6 @@ export class Synth {
    */
   get hasSamples(): boolean {
     return !!(this._samples && this._samples.length > 0);
-  }
-
-  /**
-   * Whether this synth has an automation plan.
-   */
-  get hasAutomation(): boolean {
-    return !!(this._automation && this._automation.lanes && this._automation.lanes.length > 0);
   }
 
   /**
@@ -126,93 +91,26 @@ export class Synth {
   }
 
   /**
-   * Configure automation runner options.
-   * Call this before play() to set callbacks for automation events.
-   *
-   * @example
-   * synth.configureAutomation({
-   *   onAppliedValues: (values, elapsed) => updateUI(values),
-   *   onComplete: () => console.log('Automation finished'),
-   * });
-   */
-  configureAutomation(options: AutomationRunnerOptions): void {
-    this._automationOptions = options;
-  }
-
-  /**
    * Play the synth.
-   * If the synth has automation, it starts automatically (unless disabled).
    * Throws if not loaded.
-   *
-   * @param options - Optional play settings
    */
-  async play(options: PlayOptions = {}): Promise<void> {
+  async play(): Promise<void> {
     if (!this._loaded) {
       throw new SynthError("Synth not loaded. Call Underscore.loadSynth() first.");
     }
 
-    const { automate = true, automationStartAt = 0 } = options;
-
     await this.engine.play(this._synthName);
-
-    // Auto-start automation if available and enabled
-    if (automate && this.hasAutomation) {
-      this._automationRunner = new AutomationRunner(this._automationOptions);
-      this._automationRunner.start(this, automationStartAt);
-    }
   }
 
   /**
-   * Stop the synth and any running automation.
+   * Stop the synth.
    */
   stop(): void {
-    if (this._automationRunner) {
-      this._automationRunner.stop();
-      this._automationRunner = null;
-    }
     this.engine.stop();
   }
 
   /**
-   * Get the automation runner (if automation is running).
-   * Useful for seeking, checking elapsed time, etc.
-   */
-  getAutomationRunner(): AutomationRunner | null {
-    return this._automationRunner;
-  }
-
-  /**
-   * Whether automation is currently running.
-   */
-  isAutomationRunning(): boolean {
-    return this._automationRunner?.isRunning() ?? false;
-  }
-
-  /**
-   * Seek to a specific time in the automation.
-   * Only works if automation is running.
-   */
-  seekAutomation(timeSec: number): void {
-    this._automationRunner?.seek(timeSec);
-  }
-
-  /**
-   * Get elapsed automation time in seconds.
-   */
-  getAutomationElapsed(): number {
-    return this._automationRunner?.getElapsedSec() ?? 0;
-  }
-
-  /**
-   * Get remaining automation time in seconds.
-   */
-  getAutomationRemaining(): number {
-    return this._automationRunner?.getRemainingTime() ?? 0;
-  }
-
-  /**
    * Set a parameter value.
-   * Note: if automation is running, it may override this value.
    */
   setParam(name: string, value: number): void {
     const param = this._params.find((p) => p.name === name);
@@ -227,7 +125,6 @@ export class Synth {
 
   /**
    * Set multiple parameters at once.
-   * Note: if automation is running, it may override these values.
    */
   setParams(params: Record<string, number>): void {
     const validParams: Record<string, number> = {};
@@ -290,28 +187,18 @@ export class Synth {
   /**
    * Crossfade into this synth from whatever is currently playing.
    * The synth must be loaded first.
-   * If the synth has automation, it starts automatically.
    *
    * @param durationSec - Duration of the crossfade in seconds (default: 3)
-   * @param options - Optional play settings for automation
    */
-  async crossfadeIn(durationSec: number = 3, options: PlayOptions = {}): Promise<void> {
+  async crossfadeIn(durationSec: number = 3): Promise<void> {
     if (!this._loaded) {
       throw new SynthError("Synth not loaded. Call Underscore.loadSynth() first.");
     }
-
-    const { automate = true, automationStartAt = 0 } = options;
 
     const ampParam = this._params.find((p) => p.name === "amp");
     const targetAmp = ampParam?.default ?? 0.3;
 
     await this.engine.crossfadeTo(this._synthName, durationSec, targetAmp);
-
-    // Auto-start automation if available and enabled
-    if (automate && this.hasAutomation) {
-      this._automationRunner = new AutomationRunner(this._automationOptions);
-      this._automationRunner.start(this, automationStartAt);
-    }
   }
 
   /**

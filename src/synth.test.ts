@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { Synth } from "./synth.js";
 import type { AudioEngine } from "./audio.js";
-import type { ParamMetadata, AutomationPlan } from "./types.js";
+import type { ParamMetadata, SampleMetadata } from "./types.js";
 
 describe("Synth", () => {
   let mockEngine: AudioEngine;
@@ -17,13 +17,19 @@ describe("Synth", () => {
     { name: "resonance", type: "factor", default: 0.3, min: 0, max: 1, description: "Filter resonance" },
   ];
 
-  const testAutomation: AutomationPlan = {
-    title: "Test Plan",
-    durationSec: 60,
-    lanes: [
-      { param: "cutoff", keyframes: [{ t: 0, value: 500 }, { t: 60, value: 2000 }] },
-    ],
-  };
+  const testSamples: SampleMetadata[] = [
+    {
+      bufferNum: 0,
+      id: "choir",
+      description: "Choir texture",
+      s3Key: "samples/choir.wav",
+      url: "https://example.com/choir.wav",
+      durationSec: 4.5,
+      channels: 2,
+      sampleRate: 48000,
+      loop: true,
+    },
+  ];
 
   beforeEach(() => {
     mockEngine = {
@@ -35,6 +41,8 @@ describe("Synth", () => {
       getAllParams: vi.fn().mockReturnValue({}),
       isPlaying: vi.fn().mockReturnValue(false),
       subscribe: vi.fn().mockReturnValue(() => {}),
+      crossfadeTo: vi.fn().mockResolvedValue(undefined),
+      isCrossfading: vi.fn().mockReturnValue(false),
     } as unknown as AudioEngine;
 
     synth = new Synth(
@@ -42,8 +50,7 @@ describe("Synth", () => {
       "cmp_test123",
       "warm_pad",
       "A warm analog pad sound",
-      testParams,
-      testAutomation
+      testParams
     );
   });
 
@@ -63,10 +70,6 @@ describe("Synth", () => {
     it("exposes params", () => {
       expect(synth.params).toEqual(testParams);
       expect(synth.params).toHaveLength(3);
-    });
-
-    it("exposes automation", () => {
-      expect(synth.automation).toEqual(testAutomation);
     });
 
     it("is not loaded by default", () => {
@@ -196,6 +199,93 @@ describe("Synth", () => {
       
       expect(mockEngine.subscribe).toHaveBeenCalledWith(listener);
       expect(unsubscribe).toBe(mockUnsubscribe);
+    });
+  });
+
+  describe("samples", () => {
+    it("returns undefined when no samples provided", () => {
+      expect(synth.samples).toBeUndefined();
+    });
+
+    it("returns samples when provided", () => {
+      const synthWithSamples = new Synth(
+        mockEngine,
+        "cmp_test123",
+        "sample_pad",
+        "A pad with samples",
+        testParams,
+        testSamples
+      );
+      expect(synthWithSamples.samples).toEqual(testSamples);
+    });
+  });
+
+  describe("hasSamples", () => {
+    it("returns false when no samples", () => {
+      expect(synth.hasSamples).toBe(false);
+    });
+
+    it("returns false for empty samples array", () => {
+      const synthEmptySamples = new Synth(
+        mockEngine,
+        "cmp_test123",
+        "empty_pad",
+        "A pad with empty samples",
+        testParams,
+        []
+      );
+      expect(synthEmptySamples.hasSamples).toBe(false);
+    });
+
+    it("returns true when samples present", () => {
+      const synthWithSamples = new Synth(
+        mockEngine,
+        "cmp_test123",
+        "sample_pad",
+        "A pad with samples",
+        testParams,
+        testSamples
+      );
+      expect(synthWithSamples.hasSamples).toBe(true);
+    });
+  });
+
+  describe("crossfadeIn()", () => {
+    it("throws when not loaded", async () => {
+      await expect(synth.crossfadeIn()).rejects.toThrow("Synth not loaded");
+    });
+
+    it("calls engine.crossfadeTo with default duration and amp from params", async () => {
+      synth.markLoaded();
+      await synth.crossfadeIn();
+      expect(mockEngine.crossfadeTo).toHaveBeenCalledWith("warm_pad", 3, 0.5);
+    });
+
+    it("accepts custom duration", async () => {
+      synth.markLoaded();
+      await synth.crossfadeIn(5);
+      expect(mockEngine.crossfadeTo).toHaveBeenCalledWith("warm_pad", 5, 0.5);
+    });
+
+    it("falls back to 0.3 amp when no amp param exists", async () => {
+      const noAmpSynth = new Synth(
+        mockEngine,
+        "cmp_test123",
+        "no_amp",
+        "A synth without amp param",
+        [{ name: "cutoff", type: "freq", default: 1000, min: 20, max: 20000, description: "Filter cutoff" }]
+      );
+      noAmpSynth.markLoaded();
+      await noAmpSynth.crossfadeIn();
+      expect(mockEngine.crossfadeTo).toHaveBeenCalledWith("no_amp", 3, 0.3);
+    });
+  });
+
+  describe("isCrossfading()", () => {
+    it("delegates to engine", () => {
+      (mockEngine.isCrossfading as ReturnType<typeof vi.fn>).mockReturnValue(true);
+      expect(synth.isCrossfading()).toBe(true);
+      expect(mockEngine.isCrossfading).toHaveBeenCalled();
     });
   });
 });

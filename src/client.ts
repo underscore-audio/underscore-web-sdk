@@ -109,5 +109,4 @@ export class ApiClient {
 
     return response.arrayBuffer();
   }
-
 }

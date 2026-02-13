@@ -32,25 +32,9 @@ export const ParamMetadataSchema = z.object({
   description: z.string(),
 });
 
-export const AutomationCurveSchema = z.enum(["linear", "exponential", "hold"]);
 
-export const AutomationKeyframeSchema = z.object({
-  t: z.number(),
-  value: z.number(),
-  curve: AutomationCurveSchema.optional(),
-});
 
-export const ParamAutomationLaneSchema = z.object({
-  param: z.string(),
-  keyframes: z.array(AutomationKeyframeSchema),
-});
 
-export const AutomationPlanSchema = z.object({
-  title: z.string(),
-  durationSec: z.number(),
-  notes: z.string().optional(),
-  lanes: z.array(ParamAutomationLaneSchema),
-});
 
 export const SampleMetadataSchema = z.object({
   bufferNum: z.number(),
@@ -75,7 +59,6 @@ export const SynthMetadataSchema = z.object({
   name: z.string(),
   description: z.string(),
   params: z.array(ParamMetadataSchema),
-  automation: AutomationPlanSchema.optional(),
   samples: z.array(SampleMetadataSchema).optional(),
   createdAt: z.string(),
   synthdefUrl: z.string(),
