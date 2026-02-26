@@ -4,9 +4,6 @@
  * These schemas ensure that API responses match expected shapes,
  * providing clear error messages when the API contract changes.
  *
- * API Contract Reference:
- * https://github.com/po-studio/underscore/blob/main/api/src/contracts/sdk-api.ts
- *
  * These schemas must match the API contract defined in the underscore monorepo.
  * If the API changes, update these schemas accordingly.
  */
