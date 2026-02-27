@@ -37,13 +37,7 @@ import type {
 } from "./types.js";
 
 export * from "./types.js";
-export { Synth, type PlayOptions } from "./synth.js";
-export {
-  AutomationRunner,
-  clamp,
-  valueAtTime,
-  type AutomationRunnerOptions,
-} from "./automation.js";
+export { Synth } from "./synth.js";
 export {
   UnderscoreError,
   ApiError,
@@ -139,7 +133,7 @@ export class Underscore {
 
     // Fetch and load the synthdef
     const synthdefData = await this.client.fetchSynthdef(compositionId, name);
-    await this.engine.loadSynthdefFromData(synthdefData, name);
+    await this.engine.loadSynthdefFromData(synthdefData);
 
     // Create and return the Synth object
     const synth = new Synth(
@@ -148,7 +142,6 @@ export class Underscore {
       name,
       metadata.description,
       metadata.params,
-      metadata.automation,
       metadata.samples
     );
     synth.markLoaded();

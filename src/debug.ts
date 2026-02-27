@@ -5,7 +5,7 @@
  * Set the log level via UnderscoreConfig.logLevel to enable.
  */
 
-export type LogLevel = "debug" | "info" | "warn" | "error" | "none";
+import type { LogLevel } from "./types.js";
 
 export interface Logger {
   debug: (msg: string, ...args: unknown[]) => void;

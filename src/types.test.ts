@@ -11,10 +11,6 @@ import type {
   ParamMetadata,
   ParamType,
   ParamScale,
-  AutomationKeyframe,
-  AutomationCurve,
-  ParamAutomationLane,
-  AutomationPlan,
   SynthSummary,
   SynthMetadata,
   SynthState,
@@ -112,37 +108,6 @@ describe("types", () => {
     });
   });
 
-  describe("AutomationPlan", () => {
-    it("represents a complete automation plan", () => {
-      const plan: AutomationPlan = {
-        title: "Slow Build",
-        durationSec: 120,
-        notes: "Gradually increases intensity",
-        lanes: [
-          {
-            param: "cutoff",
-            keyframes: [
-              { t: 0, value: 500, curve: "linear" },
-              { t: 60, value: 2000, curve: "exponential" },
-              { t: 120, value: 4000 },
-            ],
-          },
-        ],
-      };
-      expect(plan.durationSec).toBe(120);
-      expect(plan.lanes).toHaveLength(1);
-      expect(plan.lanes[0].keyframes).toHaveLength(3);
-    });
-
-    it("supports all curve types", () => {
-      const curves: AutomationCurve[] = ["linear", "exponential", "hold"];
-      curves.forEach((curve) => {
-        const keyframe: AutomationKeyframe = { t: 0, value: 1, curve };
-        expect(keyframe.curve).toBe(curve);
-      });
-    });
-  });
-
   describe("SynthSummary", () => {
     it("represents synth list item", () => {
       const summary: SynthSummary = {
@@ -176,21 +141,6 @@ describe("types", () => {
       expect(metadata.synthdefUrl).toContain("synthdef");
     });
 
-    it("includes optional automation", () => {
-      const metadata: SynthMetadata = {
-        name: "evolving_pad",
-        description: "An evolving pad with automation",
-        params: [],
-        automation: {
-          title: "Evolution",
-          durationSec: 180,
-          lanes: [],
-        },
-        createdAt: "2024-01-15T10:30:00Z",
-        synthdefUrl: "/api/v1/compositions/cmp_123/synths/evolving_pad/synthdef",
-      };
-      expect(metadata.automation?.durationSec).toBe(180);
-    });
   });
 
   describe("SynthState", () => {

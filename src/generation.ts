@@ -6,7 +6,7 @@
 
 import type { GenerationEvent } from "./types.js";
 
-export interface GenerationOptions {
+interface GenerationOptions {
   compositionId: string;
   description: string;
 }

@@ -33,19 +33,6 @@ export const testData = {
         description: "Filter resonance",
       },
     ],
-    automation: {
-      title: "Slow Build",
-      durationSec: 60,
-      lanes: [
-        {
-          param: "cutoff",
-          keyframes: [
-            { t: 0, value: 500, curve: "linear" },
-            { t: 60, value: 2000 },
-          ],
-        },
-      ],
-    },
     createdAt: "2024-01-15T10:30:00Z",
     synthdefUrl: "/api/v1/compositions/cmp_test123/synths/warm_pad/synthdef",
   },

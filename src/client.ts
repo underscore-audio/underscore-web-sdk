@@ -7,7 +7,6 @@ import type { SynthSummary, SynthMetadata } from "./types.js";
 import {
   ListSynthsResponseSchema,
   SynthMetadataSchema,
-  GenerateResponseSchema,
 } from "./schemas.js";
 import { ApiError, ValidationError } from "./errors.js";
 import { ZodError } from "zod";
@@ -109,20 +108,5 @@ export class ApiClient {
     }
 
     return response.arrayBuffer();
-  }
-
-  /**
-   * Start a synth generation job.
-   * Returns the stream URL for SSE events.
-   */
-  async startGeneration(
-    compositionId: string,
-    description: string
-  ): Promise<{ streamUrl: string }> {
-    const data = await this.request<unknown>(`/api/v1/compositions/${compositionId}/generate`, {
-      method: "POST",
-      body: JSON.stringify({ description }),
-    });
-    return this.validate(GenerateResponseSchema, data);
   }
 }

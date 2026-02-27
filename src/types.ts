@@ -84,52 +84,9 @@ export interface ParamMetadata {
   description: string;
 }
 
-/**
- * Interpolation curve for automation keyframes.
- */
-export type AutomationCurve = "linear" | "exponential" | "hold";
 
-/**
- * Automation keyframe for parameter automation.
- */
-export interface AutomationKeyframe {
-  /** Time in seconds from start */
-  t: number;
 
-  /** Parameter value at this time */
-  value: number;
 
-  /** Interpolation to next keyframe */
-  curve?: AutomationCurve;
-}
-
-/**
- * Automation lane for a single parameter.
- */
-export interface ParamAutomationLane {
-  /** Parameter name to automate */
-  param: string;
-
-  /** Keyframes defining the automation curve */
-  keyframes: AutomationKeyframe[];
-}
-
-/**
- * Automation plan for driving synth parameters over time.
- */
-export interface AutomationPlan {
-  /** Human-readable title */
-  title: string;
-
-  /** Total duration in seconds */
-  durationSec: number;
-
-  /** Optional notes about the automation */
-  notes?: string;
-
-  /** Parameter automation lanes */
-  lanes: ParamAutomationLane[];
-}
 
 /**
  * Metadata for an audio sample used by a synth.
@@ -182,7 +139,7 @@ export interface SynthSummary {
 }
 
 /**
- * Full synth metadata including automation and samples.
+ * Full synth metadata including samples.
  */
 export interface SynthMetadata {
   /** Synth name (unique within composition) */
@@ -193,9 +150,6 @@ export interface SynthMetadata {
 
   /** Parameter definitions */
   params: ParamMetadata[];
-
-  /** Optional automation plan */
-  automation?: AutomationPlan;
 
   /** Optional audio samples used by this synth */
   samples?: SampleMetadata[];

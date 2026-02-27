@@ -111,17 +111,9 @@ export class AudioEngine {
   }
 
   /**
-   * Load a synthdef from a URL.
-   */
-  async loadSynthdefFromUrl(url: string): Promise<void> {
-    await this.init();
-    await this.sonic!.loadSynthDef(url);
-  }
-
-  /**
    * Load a synthdef from binary data.
    */
-  async loadSynthdefFromData(data: ArrayBuffer, _synthName: string): Promise<void> {
+  async loadSynthdefFromData(data: ArrayBuffer): Promise<void> {
     await this.init();
 
     const blob = new Blob([data], { type: "application/octet-stream" });
