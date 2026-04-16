@@ -65,6 +65,22 @@ export const ListSynthsResponseSchema = z.object({
   synths: z.array(SynthSummarySchema),
 });
 
+export const CompositionSchema = z.object({
+  id: z.string(),
+  visibility: z.string().optional(),
+  synthCount: z.number().optional(),
+  lastSynthName: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+});
+
+export const CreateCompositionResponseSchema = z.object({
+  id: z.string(),
+  title: z.string().nullable().optional(),
+  visibility: z.string(),
+  createdAt: z.string(),
+});
+
 export const GenerateResponseSchema = z.object({
   streamUrl: z.string(),
 });

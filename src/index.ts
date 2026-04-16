@@ -33,6 +33,9 @@ import type {
   UnderscoreConfig,
   SynthSummary,
   SynthMetadata,
+  Composition,
+  CreateCompositionOptions,
+  CreateCompositionResponse,
   GenerationEvent,
 } from "./types.js";
 
@@ -81,6 +84,20 @@ export class Underscore {
    */
   isInitialized(): boolean {
     return this.engine.isInitialized();
+  }
+
+  /**
+   * Create a new composition.
+   */
+  async createComposition(options?: CreateCompositionOptions): Promise<CreateCompositionResponse> {
+    return this.client.createComposition(options);
+  }
+
+  /**
+   * Get composition metadata.
+   */
+  async getComposition(compositionId: string): Promise<Composition> {
+    return this.client.getComposition(compositionId);
   }
 
   /**
@@ -151,6 +168,7 @@ export class Underscore {
 
   /**
    * Generate a new synth using natural language.
+   * Requires a **secret** key (`us_sec_...`). Will be rejected with 403 if called with a publishable key.
    *
    * Yields events as the generation progresses.
    * When a 'ready' event is received, call loadSynth() to get the playable synth.

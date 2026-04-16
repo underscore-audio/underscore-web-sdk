@@ -51,11 +51,11 @@ jobs:
       - name: Build SDK
         run: npm run build
 
-      - name: Install demo dependencies
-        run: cd demo && npm ci
+      - name: Install example dependencies
+        run: cd examples && npm ci
 
       - name: Copy assets
-        run: cd demo && npm run copy-assets
+        run: cd examples && npm run copy-assets
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium

@@ -3,10 +3,12 @@
  * Handles API key authentication, request/response handling, and schema validation.
  */
 
-import type { SynthSummary, SynthMetadata } from "./types.js";
+import type { SynthSummary, SynthMetadata, Composition, CreateCompositionOptions, CreateCompositionResponse } from "./types.js";
 import {
   ListSynthsResponseSchema,
   SynthMetadataSchema,
+  CompositionSchema,
+  CreateCompositionResponseSchema,
 } from "./schemas.js";
 import { ApiError, ValidationError } from "./errors.js";
 import { ZodError } from "zod";
@@ -61,6 +63,26 @@ export class ApiClient {
       }
       throw err;
     }
+  }
+
+  /**
+   * Create a new composition.
+   * Requires a **secret** key (`us_sec_...`). Will be rejected with 403 if called with a publishable key.
+   */
+  async createComposition(options?: CreateCompositionOptions): Promise<CreateCompositionResponse> {
+    const data = await this.request<unknown>("/api/v1/compositions", {
+      method: "POST",
+      body: JSON.stringify(options ?? {}),
+    });
+    return this.validate(CreateCompositionResponseSchema, data);
+  }
+
+  /**
+   * Get composition metadata.
+   */
+  async getComposition(compositionId: string): Promise<Composition> {
+    const data = await this.request<unknown>(`/api/v1/compositions/${compositionId}`);
+    return this.validate(CompositionSchema, data);
   }
 
   /**

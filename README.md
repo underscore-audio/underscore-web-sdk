@@ -10,7 +10,6 @@ TypeScript SDK for integrating [Underscore](https://underscore.audio) AI-generat
 - Load and play AI-generated synthesizers in the browser
 - Real-time parameter control
 - Generate new synths with natural language
-- Parameter automation support
 - Full TypeScript support
 - Works with React, Vue, Svelte, vanilla JS, and any web framework
 
@@ -39,7 +38,7 @@ npm install github:underscore-audio/underscore-web-sdk supersonic-scsynth
 import { Underscore } from '@underscore/sdk';
 
 const client = new Underscore({
-  apiKey: 'us_your_api_key',
+  apiKey: 'us_pub_your_publishable_key',
   wasmBaseUrl: '/supersonic/',
 });
 
@@ -55,7 +54,16 @@ document.getElementById('play')?.addEventListener('click', async () => {
 
 ### 1. Get an API Key
 
-Sign up at [underscore.audio](https://underscore.audio) and create an API key in Settings.
+Sign up at [underscore.audio](https://underscore.audio) -- a publishable API key is created for you automatically.
+
+Underscore uses two key types:
+
+| Type | Prefix | Where to use | Scopes |
+|------|--------|-------------|--------|
+| **Publishable** | `us_pub_` | Browser / client-side code | `synth:read` only |
+| **Secret** | `us_sec_` | Server-side only | `synth:read`, `synth:generate` |
+
+Use your **publishable** key in the browser SDK. Use your **secret** key on your server for generating new synths (which consumes LLM credits).
 
 ### 2. Copy WASM Assets
 
@@ -127,7 +135,7 @@ npm run dev
 
 ```typescript
 const client = new Underscore({
-  apiKey: 'us_...',                      // Required
+  apiKey: 'us_pub_...',                  // Required (publishable key for browser)
   wasmBaseUrl: '/supersonic/',           // Required
   baseUrl: 'https://underscore.audio',   // Optional
   logLevel: 'none',                      // Optional: debug | info | warn | error | none
@@ -155,9 +163,10 @@ synth.description;                       // Description
 synth.params;                            // ParamMetadata[]
 ```
 
-### Generation
+### Generation (requires secret key)
 
 ```typescript
+// Initialize with a secret key (us_sec_...) -- server-side only!
 for await (const event of client.generate('cmp_...', 'warm analog pad')) {
   switch (event.type) {
     case 'thinking': console.log(event.content); break;
@@ -218,7 +227,7 @@ npm run lint    # Lint
 Compatible with Underscore API v1.
 
 - [API Documentation](https://underscore.audio/docs/web-sdk)
-- [API Contract](https://github.com/po-studio/underscore/blob/main/api/src/contracts/sdk-api.ts)
+- [API Routes](https://github.com/po-studio/underscore/blob/main/api/src/routes/sdk.ts)
 
 ## License
 

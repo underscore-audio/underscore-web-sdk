@@ -30,7 +30,6 @@ src/
   audio.ts          # WebAudio/WASM engine wrapper
   synth.ts          # Synth class for playback control
   generation.ts     # SSE client for generation streaming
-  automation.ts     # Parameter automation runner
   errors.ts         # Custom error classes
   debug.ts          # Logging utilities
   bin/

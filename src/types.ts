@@ -13,7 +13,11 @@ export type LogLevel = "debug" | "info" | "warn" | "error" | "none";
 export interface UnderscoreConfig {
   /**
    * API key for authentication.
-   * Get one at https://underscore.audio/settings
+   *
+   * Use a **publishable** key (`us_pub_...`) for browser/client-side code.
+   * Use a **secret** key (`us_sec_...`) only in server-side code.
+   *
+   * Get one at https://underscore.audio (auto-created on signup).
    */
   apiKey: string;
 
@@ -159,6 +163,57 @@ export interface SynthMetadata {
 
   /** URL to download the compiled synthdef */
   synthdefUrl: string;
+}
+
+/**
+ * Composition metadata from the API.
+ */
+export interface Composition {
+  /** Composition ID */
+  id: string;
+
+  /** Visibility: "unlisted" | "public" | "private" */
+  visibility?: string;
+
+  /** Number of synths in this composition */
+  synthCount?: number;
+
+  /** Name of the most recently created synth */
+  lastSynthName?: string | null;
+
+  /** Creation timestamp (ISO 8601) */
+  createdAt: string;
+
+  /** Last updated timestamp (ISO 8601) */
+  updatedAt?: string;
+}
+
+/**
+ * Options for creating a new composition.
+ */
+export interface CreateCompositionOptions {
+  /** Optional title */
+  title?: string;
+
+  /** Visibility: "unlisted" (default) or "public" */
+  visibility?: "unlisted" | "public";
+}
+
+/**
+ * Response from creating a composition.
+ */
+export interface CreateCompositionResponse {
+  /** New composition ID */
+  id: string;
+
+  /** Title (if provided) */
+  title?: string | null;
+
+  /** Visibility setting */
+  visibility: string;
+
+  /** Creation timestamp */
+  createdAt: string;
 }
 
 /**

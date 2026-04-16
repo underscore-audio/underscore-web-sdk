@@ -20,12 +20,12 @@ describe("ApiClient", () => {
 
   describe("constructor", () => {
     it("uses default base URL", () => {
-      const client = new ApiClient("us_test_key");
+      const client = new ApiClient("us_pub_test_key");
       expect(client["baseUrl"]).toBe("https://underscore.audio");
     });
 
     it("accepts custom base URL", () => {
-      const client = new ApiClient("us_test_key", "https://custom.api.com");
+      const client = new ApiClient("us_sec_test_key", "https://custom.api.com");
       expect(client["baseUrl"]).toBe("https://custom.api.com");
     });
   });
