@@ -22,6 +22,7 @@
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:live": "vitest run --config vitest.live.config.ts",
     "lint": "eslint src",
     "fmt": "prettier --write src/",
     "typecheck": "tsc --noEmit",
@@ -35,6 +36,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
+    "eventsource": "^4.1.0",
     "msw": "^2.1.0",
     "prettier": "^3.2.4",
     "supersonic-scsynth": "^0.14.0",

@@ -237,13 +237,19 @@ export type SynthStateListener = (state: SynthState) => void;
 
 /**
  * Generation event types.
+ *
+ * The SDK normalizes server SSE events into a small, stable union. The
+ * `raw` variant is an escape hatch for server events that don't yet have
+ * a first-class variant: it carries the unmapped server payload so power
+ * users can introspect the full protocol without SDK changes.
  */
 export type GenerationEventType =
-  | "thinking"   // LLM thinking/reasoning
-  | "progress"   // Phase change or status update
-  | "code"       // Streaming code output
-  | "ready"      // Generation complete, synth ready
-  | "error";     // Generation failed
+  | "thinking"
+  | "progress"
+  | "code"
+  | "ready"
+  | "error"
+  | "raw";
 
 /**
  * Event emitted during synth generation.
@@ -260,4 +266,10 @@ export interface GenerationEvent {
 
   /** Error message for error events */
   error?: string;
+
+  /**
+   * Raw, unmapped server event payload for `type: "raw"` events.
+   * Shape is not versioned and may change -- use with care.
+   */
+  raw?: Record<string, unknown>;
 }

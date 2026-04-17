@@ -26,7 +26,12 @@
 import { ApiClient } from "./client.js";
 import { AudioEngine } from "./audio.js";
 import { Synth } from "./synth.js";
-import { streamGeneration } from "./generation.js";
+import {
+  startGeneration,
+  subscribeToGeneration,
+  streamGeneration,
+  type StartGenerationResult,
+} from "./generation.js";
 import { createLogger, type Logger } from "./debug.js";
 import { SynthError } from "./errors.js";
 import type {
@@ -48,6 +53,12 @@ export {
   SynthError,
   ValidationError,
 } from "./errors.js";
+export {
+  startGeneration,
+  subscribeToGeneration,
+  type StartGenerationOptions,
+  type StartGenerationResult,
+} from "./generation.js";
 
 const DEFAULT_WASM_BASE_URL = "/supersonic/";
 
@@ -167,14 +178,70 @@ export class Underscore {
   }
 
   /**
-   * Generate a new synth using natural language.
-   * Requires a **secret** key (`us_sec_...`). Will be rejected with 403 if called with a publishable key.
+   * Start a generation job. Server-side only.
    *
-   * Yields events as the generation progresses.
-   * When a 'ready' event is received, call loadSynth() to get the playable synth.
+   * Requires a **secret** key (`us_sec_...`). Uses only `fetch`, so it
+   * works in Node and any runtime with a global `fetch`. Return the
+   * `streamUrl` to your browser client and have it call
+   * {@link Underscore.subscribeToGeneration} to observe progress.
    *
-   * @param compositionId - The composition to generate in
-   * @param description - Natural language description of the sound
+   * This is the safe entry point for the backend-proxy pattern:
+   * secret key never touches the browser.
+   */
+  async startGeneration(
+    compositionId: string,
+    description: string
+  ): Promise<StartGenerationResult> {
+    const baseUrl = this.config.baseUrl || "https://underscore.audio";
+    return startGeneration(baseUrl, this.config.apiKey, { compositionId, description });
+  }
+
+  /**
+   * Subscribe to a generation stream. Browser-only.
+   *
+   * Accepts the relative `streamUrl` returned by
+   * {@link Underscore.startGeneration} (or any absolute stream URL).
+   * No API key is required; the stream is protected by the unguessable
+   * `jobId` embedded in the URL.
+   *
+   * When a `ready` event arrives, the synth is automatically loaded and
+   * attached as `event.synth` so you can call `synth.play()` immediately.
+   */
+  async *subscribeToGeneration(
+    streamUrlOrPath: string,
+    compositionId?: string
+  ): AsyncGenerator<GenerationEvent & { synth?: Synth }> {
+    const baseUrl = this.config.baseUrl || "https://underscore.audio";
+
+    for await (const event of subscribeToGeneration(streamUrlOrPath, baseUrl)) {
+      if (event.type === "ready" && event.synthName && compositionId) {
+        try {
+          const synth = await this.loadSynth(compositionId, event.synthName);
+          yield { ...event, synth };
+        } catch (error) {
+          yield {
+            type: "error",
+            error: error instanceof Error ? error.message : "Failed to load synth",
+          };
+        }
+      } else {
+        yield event;
+      }
+    }
+  }
+
+  /**
+   * Legacy combined generation flow.
+   *
+   * Chains {@link Underscore.startGeneration} and
+   * {@link Underscore.subscribeToGeneration} in a single call. This is
+   * only usable in "trusted" environments that have BOTH network access
+   * capable of using a secret key AND an `EventSource` global (e.g. a
+   * Node CLI with an EventSource polyfill, or an Electron app).
+   *
+   * Third-party browser apps must use the backend-proxy pattern instead:
+   * run `startGeneration` on your server, forward the returned
+   * `streamUrl` to the browser, and call `subscribeToGeneration` there.
    */
   async *generate(
     compositionId: string,
@@ -187,7 +254,6 @@ export class Underscore {
       description,
     })) {
       if (event.type === "ready" && event.synthName) {
-        // Load the synth and include it in the event
         try {
           const synth = await this.loadSynth(compositionId, event.synthName);
           yield { ...event, synth };

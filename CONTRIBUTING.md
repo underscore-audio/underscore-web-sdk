@@ -36,6 +36,7 @@ src/
     copy-assets.ts  # CLI tool for WASM asset copying
 examples/           # Complete working example
 test/               # Integration tests with mocks
+test/live/          # Live tests against a running Underscore API
 ```
 
 ## Code Style
@@ -48,8 +49,40 @@ test/               # Integration tests with mocks
 ## Testing
 
 ```bash
-npm test           # Run all tests
+npm test           # Fast, mocked unit + integration tests (no network)
 npm run test:watch # Watch mode
+npm run test:live  # Tests against a real running Underscore API
+```
+
+### Live tests
+
+The live suite exercises the SDK against a real API (local or production).
+Configuration is entirely through environment variables so the same
+harness runs against `http://localhost:3333` (the default when you
+`make dev-api` in the monorepo) and `https://underscore.audio`.
+
+| Variable | Required for | Notes |
+| --- | --- | --- |
+| `UNDERSCORE_BASE_URL` | all | Defaults to `http://localhost:3333`. Set to `https://underscore.audio` for prod. |
+| `UNDERSCORE_PUBLISHABLE_KEY` | read-only tier | `us_pub_...` with `synth:read`. |
+| `UNDERSCORE_TEST_COMPOSITION_ID` | read-only tier | An unlisted/public composition that owns at least one synth. |
+| `UNDERSCORE_TEST_SYNTH_NAME` | optional | Defaults to the newest synth in the composition. |
+| `UNDERSCORE_SECRET_KEY` | write + generation tiers | `us_sec_...`. |
+| `UNDERSCORE_LIVE_GENERATION=1` | generation tier only | Opt-in because each run costs LLM tokens and ~30-120s. |
+
+Missing variables cause the relevant tests to `skip` with a clear
+message, so `npm run test:live` passes on a machine with no credentials.
+
+Example local run:
+
+```bash
+export UNDERSCORE_BASE_URL=http://localhost:3333
+export UNDERSCORE_PUBLISHABLE_KEY=us_pub_...
+export UNDERSCORE_SECRET_KEY=us_sec_...
+export UNDERSCORE_TEST_COMPOSITION_ID=cmp_...
+# Optional: enable the slow generation tier
+export UNDERSCORE_LIVE_GENERATION=1
+npm run test:live
 ```
 
 ## Pull Request Process

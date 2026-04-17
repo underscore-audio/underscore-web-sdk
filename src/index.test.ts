@@ -174,6 +174,35 @@ describe("Underscore", () => {
       expect(client.audioContext).toBeNull();
     });
   });
+
+  describe("startGeneration()", () => {
+    it("kicks off a job and returns jobId + streamUrl", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jobId: "job_abc",
+            streamUrl: "/api/stream/cmp_123/job_abc",
+          }),
+      });
+
+      const client = new Underscore({
+        apiKey: "us_sec_test_key",
+        baseUrl: "https://api.test.com",
+      });
+      const result = await client.startGeneration("cmp_123", "warm pad");
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.test.com/api/v1/compositions/cmp_123/generate",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ description: "warm pad" }),
+        })
+      );
+      expect(result.jobId).toBe("job_abc");
+      expect(result.streamUrl).toBe("/api/stream/cmp_123/job_abc");
+    });
+  });
 });
 
 describe("exports", () => {

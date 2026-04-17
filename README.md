@@ -22,13 +22,14 @@ npm install @underscore/sdk supersonic-scsynth
 <details>
 <summary>Installing from GitHub (private repo access)</summary>
 
-```bash
-# Clone and reference locally
-git clone https://github.com/underscore-audio/underscore-web-sdk.git
-# In package.json: "@underscore/sdk": "file:../path/to/underscore-web-sdk"
+The SDK lives in its own standalone repo: `underscore-audio/underscore-web-sdk`.
 
-# Or install directly from GitHub
+```bash
+# Install directly from GitHub
 npm install github:underscore-audio/underscore-web-sdk supersonic-scsynth
+
+# Or reference a local clone in your package.json
+# "@underscore/sdk": "file:../path/to/underscore-web-sdk"
 ```
 </details>
 
@@ -163,17 +164,58 @@ synth.description;                       // Description
 synth.params;                            // ParamMetadata[]
 ```
 
-### Generation (requires secret key)
+### Generation (backend-proxy pattern, recommended)
+
+Generation consumes LLM credits and requires a **secret** key (`us_sec_...`)
+that must never ship to the browser. The SDK splits generation into two
+primitives so each half can run in its correct environment.
+
+On your server (Node, holds the secret key):
 
 ```typescript
-// Initialize with a secret key (us_sec_...) -- server-side only!
-for await (const event of client.generate('cmp_...', 'warm analog pad')) {
+import { Underscore } from '@underscore/sdk';
+
+const server = new Underscore({
+  apiKey: process.env.UNDERSCORE_SECRET_KEY!, // us_sec_...
+  wasmBaseUrl: 'unused-on-server',
+});
+
+// Expose a route your browser can call with { compositionId, description }.
+const { jobId, streamUrl } = await server.startGeneration(
+  compositionId,
+  description
+);
+// Return { streamUrl } (and optionally the host) to the browser.
+```
+
+In the browser (uses a publishable key for read/playback):
+
+```typescript
+for await (const event of client.subscribeToGeneration(streamUrl, compositionId)) {
   switch (event.type) {
     case 'thinking': console.log(event.content); break;
     case 'progress': console.log(event.content); break;
-    case 'ready':    await event.synth.play(); break;
+    case 'ready':    await event.synth?.play(); break;
     case 'error':    console.error(event.error); break;
+    case 'raw':      /* unmapped server event, inspect event.raw */ break;
   }
+}
+```
+
+The `streamUrl` contains an unguessable `jobId` that acts as a capability
+token, so the browser can subscribe without any API key.
+
+### Generation (trusted-environment one-shot)
+
+`client.generate(compositionId, description)` chains both halves in a
+single call. It requires BOTH a usable secret key AND an `EventSource`
+global, so it's only safe in trusted environments like a Node CLI with
+an EventSource polyfill, an Electron app, or a local dev page. Do not
+use it in production browser apps -- use the backend-proxy pattern above.
+
+```typescript
+for await (const event of client.generate('cmp_...', 'warm analog pad')) {
+  // same event shape as subscribeToGeneration
 }
 ```
 
@@ -218,9 +260,14 @@ Requires: SharedArrayBuffer, AudioWorklet, WebAssembly
 ```bash
 npm install     # Install dependencies
 npm run build   # Build
-npm test        # Run tests (110 tests)
+npm test        # Run fast mocked tests (no network)
+npm run test:live # Run tests against a real Underscore API
 npm run lint    # Lint
 ```
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md#live-tests) for the env vars the
+live suite reads; the same harness works against local
+(`http://localhost:3333`) and production (`https://underscore.audio`).
 
 ## API Compatibility
 

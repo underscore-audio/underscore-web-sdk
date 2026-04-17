@@ -7,6 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AudioEngine } from "./audio.js";
+import { AudioError } from "./errors.js";
 
 describe("AudioEngine", () => {
   let engine: AudioEngine;
@@ -115,6 +116,29 @@ describe("AudioEngine", () => {
     it("does nothing when no synth is loaded", async () => {
       await expect(engine.toggle()).resolves.toBeUndefined();
       expect(engine.isPlaying()).toBe(false);
+    });
+  });
+
+  describe("loadSamples()", () => {
+    it("is a no-op for empty samples", async () => {
+      await expect(engine.loadSamples([])).resolves.toBeUndefined();
+    });
+
+    it("throws AudioError when a sample is missing url", async () => {
+      await expect(
+        engine.loadSamples([
+          {
+            bufferNum: 0,
+            id: "kick",
+            description: "A kick",
+            s3Key: "compositions/x/kick.wav",
+            durationSec: 1.0,
+            channels: 2,
+            sampleRate: 48000,
+            loop: false,
+          },
+        ])
+      ).rejects.toBeInstanceOf(AudioError);
     });
   });
 });
