@@ -30,11 +30,20 @@ afterAll(() => {
 
 /**
  * Mock EventSource (not available in Node.js).
+ *
+ * `instances` lets a test grab the live EventSource after the SDK
+ * constructs one, so it can drive the stream via _simulateMessage /
+ * _simulateError without reaching into private SDK state.
  */
-class MockEventSource {
+export class MockEventSource {
   static CONNECTING = 0;
   static OPEN = 1;
   static CLOSED = 2;
+
+  static instances: MockEventSource[] = [];
+  static resetInstances(): void {
+    MockEventSource.instances = [];
+  }
 
   url: string;
   readyState = MockEventSource.CONNECTING;
@@ -46,7 +55,7 @@ class MockEventSource {
 
   constructor(url: string) {
     this.url = url;
-    // Simulate connection opening
+    MockEventSource.instances.push(this);
     setTimeout(() => {
       this.readyState = MockEventSource.OPEN;
       this.onopen?.({ type: "open" } as Event);

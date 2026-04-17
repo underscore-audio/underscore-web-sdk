@@ -34,7 +34,6 @@ describe.skipIf(skipReason !== null)("live: composition create", () => {
     const client = new Underscore({
       apiKey: cfg.secretKey!,
       baseUrl: cfg.baseUrl,
-      wasmBaseUrl: "unused-in-node",
     });
 
     const result = await client.createComposition({
@@ -52,19 +51,21 @@ describe.skipIf(skipReason !== null)("live: composition create", () => {
       const client = new Underscore({
         apiKey: cfg.publishableKey!,
         baseUrl: cfg.baseUrl,
-        wasmBaseUrl: "unused-in-node",
       });
 
-      await expect(
-        client.createComposition({ title: "should-fail", visibility: "unlisted" })
-      ).rejects.toMatchObject({
-        name: "ApiError",
-        status: 403,
-      });
-      // Sanity: the error constructor chain is the one we document.
-      await client
-        .createComposition({ title: "should-fail-2", visibility: "unlisted" })
-        .catch((err) => expect(err).toBeInstanceOf(ApiError));
+      /*
+       * Assert on both the prototype chain (so `instanceof ApiError`
+       * keeps working for SDK consumers) and the HTTP status, using a
+       * single network call.
+       */
+      let thrown: unknown;
+      try {
+        await client.createComposition({ title: "should-fail", visibility: "unlisted" });
+      } catch (err) {
+        thrown = err;
+      }
+      expect(thrown).toBeInstanceOf(ApiError);
+      expect((thrown as ApiError).status).toBe(403);
     }
   );
 });

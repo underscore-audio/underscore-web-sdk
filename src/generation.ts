@@ -59,7 +59,7 @@ export async function startGeneration(
   });
 
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => ({ error: "Unknown error" }));
+    const errorBody = (await response.json().catch(() => ({}))) as { error?: string };
     throw new ApiError(
       errorBody.error || `Failed to start generation: ${response.status}`,
       response.status

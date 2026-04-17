@@ -25,12 +25,6 @@ if (!SECRET_KEY) {
 const underscore = new Underscore({
   apiKey: SECRET_KEY,
   baseUrl: HOST,
-  /*
-   * wasmBaseUrl is required by the SDK constructor but unused server-side
-   * because we never call init() / loadSynth() here -- we only use the
-   * API client methods (startGeneration). Any non-empty value works.
-   */
-  wasmBaseUrl: "unused-in-node",
 });
 
 const app = express();
@@ -47,10 +41,7 @@ app.post("/proxy/generate", async (req, res) => {
   }
 
   try {
-    const { jobId, streamUrl } = await underscore.startGeneration(
-      compositionId,
-      description
-    );
+    const { jobId, streamUrl } = await underscore.startGeneration(compositionId, description);
 
     /*
      * Return both the streamUrl (relative) and the host, so the browser

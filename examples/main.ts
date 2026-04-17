@@ -197,7 +197,8 @@ resetBtn.addEventListener("click", () => {
 
 function renderParams(): void {
   if (!synth) {
-    paramsDiv.innerHTML = '<p style="color: #666; font-size: 13px;">Load a synth to see parameters</p>';
+    paramsDiv.innerHTML =
+      '<p style="color: #666; font-size: 13px;">Load a synth to see parameters</p>';
     return;
   }
 
@@ -288,6 +289,10 @@ generateBtn.addEventListener("click", async () => {
     const absolute = /^https?:\/\//i.test(streamUrl) ? streamUrl : `${host}${streamUrl}`;
     for await (const event of client.subscribeToGeneration(absolute, compositionId)) {
       switch (event.type) {
+        // `thinking` and `code` fire many times per generation. We
+        // intentionally swallow them in this minimal example; real apps
+        // would surface them in a streaming "thinking..." panel or a
+        // code preview.
         case "thinking":
           break;
         case "progress":

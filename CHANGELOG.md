@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
 - `client.startGeneration(compositionId, description)` - server-side Node
   entry point that kicks off a generation job with a secret key and
   returns `{ jobId, streamUrl }`.
@@ -24,8 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `UNDERSCORE_SECRET_KEY`. The slow generation tier is gated behind
   `UNDERSCORE_LIVE_GENERATION=1`. Missing env vars skip cleanly so
   `npm run test:live` is safe to run on forks without credentials.
+- Pre-commit hook via husky + lint-staged: runs `eslint --fix` + prettier
+  on staged files, then `typecheck` and the mocked test suite. Bypass
+  with `git commit --no-verify` when necessary. See CONTRIBUTING.md.
 
 ### Changed
+
 - `AudioEngine.loadSamples` now throws `AudioError` when a sample is
   missing `url` instead of silently skipping. Surfaces API/SDK contract
   breaks immediately rather than producing a silent synth.
@@ -34,9 +39,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated CONTRIBUTING.md with accurate project structure.
 
 ### Fixed
+
 - Parameter type validation now accepts any string (supports custom types like `bpm`, `generic`).
 
 ### Removed
+
 - Removed dead `llm.thinking.chunk` / `llm.phase_change` / `llm.code.chunk`
   mapping branches; the server always normalizes these before emitting.
 - Removed E2E tests (to be rewritten for standalone repo).

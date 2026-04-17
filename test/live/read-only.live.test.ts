@@ -18,12 +18,7 @@
  */
 
 import { describe, it, expect, beforeAll } from "vitest";
-import {
-  Underscore,
-  ApiError,
-  type SynthMetadata,
-  type SynthSummary,
-} from "../../src/index.js";
+import { Underscore, ApiError, type SynthMetadata, type SynthSummary } from "../../src/index.js";
 import { loadLiveConfig, pingApi } from "./config.js";
 
 const cfg = loadLiveConfig();
@@ -54,9 +49,6 @@ describe.skipIf(skipReason !== null)("live: read-only", () => {
     client = new Underscore({
       apiKey: cfg.publishableKey!,
       baseUrl: cfg.baseUrl,
-      // Required by constructor but unused for read-only flows (no audio
-      // engine init here).
-      wasmBaseUrl: "unused-in-node",
     });
 
     synths = await client.listSynths(cfg.compositionId!);
@@ -85,10 +77,7 @@ describe.skipIf(skipReason !== null)("live: read-only", () => {
   });
 
   it("fetches a synth's metadata with a valid schema", async () => {
-    const metadata: SynthMetadata = await client.getSynth(
-      cfg.compositionId!,
-      targetSynthName
-    );
+    const metadata: SynthMetadata = await client.getSynth(cfg.compositionId!, targetSynthName);
     expect(metadata.name).toBe(targetSynthName);
     expect(typeof metadata.description).toBe("string");
     expect(Array.isArray(metadata.params)).toBe(true);
@@ -118,7 +107,6 @@ describe.skipIf(skipReason !== null)("live: read-only", () => {
   });
 
   it("downloads the compiled .scsyndef binary", async () => {
-    const metadata = await client.getSynth(cfg.compositionId!, targetSynthName);
     const response = await fetch(
       `${cfg.baseUrl}/api/v1/compositions/${cfg.compositionId}/synths/${targetSynthName}/synthdef`,
       { headers: { "Underscore-API-Key": cfg.publishableKey! } }
@@ -126,19 +114,20 @@ describe.skipIf(skipReason !== null)("live: read-only", () => {
     expect(response.ok).toBe(true);
     const buffer = await response.arrayBuffer();
     expect(buffer.byteLength).toBeGreaterThan(0);
-    // The SCSyndef v2 magic bytes are "SCgf" followed by 32-bit version
-    // 2. We only assert the magic so the test survives format bumps.
+    /*
+     * SCSyndef files begin with the ASCII magic "SCgf" followed by a
+     * 32-bit version. Assert only the magic so a future format bump
+     * doesn't force a test update -- the important guarantee is that the
+     * endpoint returns a real synthdef and not, say, an HTML error page.
+     */
     const magic = new Uint8Array(buffer).subarray(0, 4);
     expect(String.fromCharCode(...magic)).toBe("SCgf");
-    // Referenced so the previous metadata call isn't "useless" per eslint.
-    expect(metadata.name).toBe(targetSynthName);
   });
 
   it("rejects requests with an invalid API key (401)", async () => {
     const rogue = new Underscore({
       apiKey: "us_pub_not_a_real_key",
       baseUrl: cfg.baseUrl,
-      wasmBaseUrl: "unused-in-node",
     });
     await expect(rogue.listSynths(cfg.compositionId!)).rejects.toMatchObject({
       name: "ApiError",
@@ -147,8 +136,8 @@ describe.skipIf(skipReason !== null)("live: read-only", () => {
   });
 
   it("returns 404 for a non-existent composition", async () => {
-    await expect(
-      client.listSynths("cmp_definitely_does_not_exist_xxxxx")
-    ).rejects.toBeInstanceOf(ApiError);
+    await expect(client.listSynths("cmp_definitely_does_not_exist_xxxxx")).rejects.toBeInstanceOf(
+      ApiError
+    );
   });
 });

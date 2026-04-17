@@ -110,6 +110,29 @@ describe("generation", () => {
     });
   });
 
+  describe("subscribeToGeneration environment guard", () => {
+    /*
+     * Documented contract: when called from an environment that has no
+     * EventSource global, the SDK must fail with a message that points
+     * the caller at the correct fix (run startGeneration on the server).
+     * We don't pin the exact wording -- we assert on the two load-bearing
+     * concepts so the message can be rephrased without breaking the test.
+     */
+    it("throws a helpful error when EventSource is unavailable", async () => {
+      const original = globalThis.EventSource;
+      vi.stubGlobal("EventSource", undefined);
+      try {
+        const { subscribeToGeneration } = await import("./generation.js");
+        const iter = subscribeToGeneration("https://api.test.com/api/stream/cmp/job");
+        await expect(iter.next()).rejects.toThrow(
+          /startGeneration.*server|server.*startGeneration/s
+        );
+      } finally {
+        vi.stubGlobal("EventSource", original);
+      }
+    });
+  });
+
   describe("mapBackendEvent", () => {
     it("maps thinking events", async () => {
       const { mapBackendEvent } = await import("./generation.js");
@@ -129,9 +152,10 @@ describe("generation", () => {
 
     it("maps complete to ready", async () => {
       const { mapBackendEvent } = await import("./generation.js");
-      expect(
-        mapBackendEvent({ type: "complete", synthName: "warm_pad" })
-      ).toEqual({ type: "ready", synthName: "warm_pad" });
+      expect(mapBackendEvent({ type: "complete", synthName: "warm_pad" })).toEqual({
+        type: "ready",
+        synthName: "warm_pad",
+      });
     });
 
     it("maps error preferring technical over friendly", async () => {
@@ -147,9 +171,10 @@ describe("generation", () => {
 
     it("falls back to raw event for unmapped types", async () => {
       const { mapBackendEvent } = await import("./generation.js");
-      const result = mapBackendEvent({ type: "model_ready", content: "gpt-5" } as any);
+      const unmapped = { type: "model_ready", content: "gpt-5" };
+      const result = mapBackendEvent(unmapped);
       expect(result?.type).toBe("raw");
-      expect(result?.raw).toEqual({ type: "model_ready", content: "gpt-5" });
+      expect(result?.raw).toEqual(unmapped);
     });
   });
 });

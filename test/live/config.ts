@@ -6,12 +6,12 @@
  * the same harness works against `http://localhost:3333` (default) and
  * `https://underscore.audio` with no code changes.
  *
- * Each required variable is optional at the process level; individual
- * test suites call `requireLiveConfig(...)` to skip gracefully when the
- * variables they need are missing. This is deliberate: it lets
- * `npm run test:live` pass on a machine with no credentials (CI forks,
- * open-source contributors) while still being meaningful for maintainers
- * who do have them.
+ * Every variable is optional at the process level. Individual suites
+ * inspect the returned `LiveConfig` and use `describe.skipIf(...)` to
+ * skip gracefully when the variables they need are missing. This is
+ * deliberate: it lets `npm run test:live` pass on a machine with no
+ * credentials (CI forks, open-source contributors) while still being
+ * meaningful for maintainers who do have them.
  */
 export interface LiveConfig {
   baseUrl: string;

@@ -53,7 +53,7 @@ export class AudioEngine {
     return () => this.listeners.delete(listener);
   }
 
-  private notify() {
+  private notify(): void {
     const state = this.state;
     this.listeners.forEach((l) => l(state));
   }
@@ -74,8 +74,7 @@ export class AudioEngine {
   private async doInit(): Promise<void> {
     const { SuperSonic } = await import("supersonic-scsynth");
 
-    const workerBaseUrl =
-      this.config.workerBaseUrl || `${this.config.wasmBaseUrl}workers/`;
+    const workerBaseUrl = this.config.workerBaseUrl || `${this.config.wasmBaseUrl}workers/`;
 
     this.sonic = new SuperSonic({
       workerBaseURL: workerBaseUrl,

@@ -33,76 +33,71 @@ if (skipReason) {
 }
 
 describe.skipIf(skipReason !== null)("live: generation", () => {
-  it(
-    "streams a generation from start to ready",
-    async () => {
-      if (!(await pingApi(cfg.baseUrl))) {
-        throw new Error(`Cannot reach Underscore API at ${cfg.baseUrl}`);
-      }
+  it("streams a generation from start to ready", async () => {
+    if (!(await pingApi(cfg.baseUrl))) {
+      throw new Error(`Cannot reach Underscore API at ${cfg.baseUrl}`);
+    }
 
-      const client = new Underscore({
-        apiKey: cfg.secretKey!,
-        baseUrl: cfg.baseUrl,
-        wasmBaseUrl: "unused-in-node",
+    const client = new Underscore({
+      apiKey: cfg.secretKey!,
+      baseUrl: cfg.baseUrl,
+    });
+
+    /*
+     * Prefer an existing composition to keep test runs idempotent and
+     * inexpensive (avoids creating a new composition row per run).
+     * Fall back to creating one if the user didn't supply one.
+     */
+    let compositionId: string;
+    if (cfg.compositionId) {
+      compositionId = cfg.compositionId;
+    } else {
+      const created = await client.createComposition({
+        title: `sdk-live-gen-${Date.now()}`,
+        visibility: "unlisted",
       });
+      compositionId = created.id;
+    }
 
-      /*
-       * Prefer an existing composition to keep test runs idempotent and
-       * inexpensive (avoids creating a new composition row per run).
-       * Fall back to creating one if the user didn't supply one.
-       */
-      let compositionId: string;
-      if (cfg.compositionId) {
-        compositionId = cfg.compositionId;
-      } else {
-        const created = await client.createComposition({
-          title: `sdk-live-gen-${Date.now()}`,
-          visibility: "unlisted",
-        });
-        compositionId = created.id;
+    // Kick off generation via the server-safe primitive so we exercise
+    // the same code path a backend-proxy would run.
+    const { jobId, streamUrl } = await client.startGeneration(
+      compositionId,
+      "short warm sine pad, stereo, 2 bars"
+    );
+    expect(jobId).toMatch(/^job_/);
+    expect(streamUrl).toMatch(/^\/api\/stream\//);
+
+    const events: GenerationEvent[] = [];
+    let readySynthName: string | undefined;
+
+    /*
+     * Deliberately NOT passing compositionId: that overload triggers
+     * browser-only auto-loading of the synth through supersonic-scsynth
+     * (which needs `window`). For a Node-side test we only care about
+     * the protocol, so we observe events and verify the synth exists via
+     * the plain HTTP getSynth call below -- exactly what a backend
+     * proxy would do before forwarding the streamUrl to a real browser.
+     */
+    for await (const event of client.subscribeToGeneration(streamUrl)) {
+      events.push(event);
+      if (event.type === "ready") {
+        readySynthName = event.synthName;
+        break;
       }
-
-      // Kick off generation via the server-safe primitive so we exercise
-      // the same code path a backend-proxy would run.
-      const { jobId, streamUrl } = await client.startGeneration(
-        compositionId,
-        "short warm sine pad, stereo, 2 bars"
-      );
-      expect(jobId).toMatch(/^job_/);
-      expect(streamUrl).toMatch(/^\/api\/stream\//);
-
-      const events: GenerationEvent[] = [];
-      let readySynthName: string | undefined;
-
-      /*
-       * Deliberately NOT passing compositionId: that overload triggers
-       * browser-only auto-loading of the synth through supersonic-scsynth
-       * (which needs `window`). For a Node-side test we only care about
-       * the protocol, so we observe events and verify the synth exists via
-       * the plain HTTP getSynth call below -- exactly what a backend
-       * proxy would do before forwarding the streamUrl to a real browser.
-       */
-      for await (const event of client.subscribeToGeneration(streamUrl)) {
-        events.push(event);
-        if (event.type === "ready") {
-          readySynthName = event.synthName;
-          break;
-        }
-        if (event.type === "error") {
-          throw new Error(`Generation failed: ${event.error}`);
-        }
+      if (event.type === "error") {
+        throw new Error(`Generation failed: ${event.error}`);
       }
+    }
 
-      expect(events.length).toBeGreaterThan(0);
-      expect(readySynthName).toBeTypeOf("string");
+    expect(events.length).toBeGreaterThan(0);
+    expect(readySynthName).toBeTypeOf("string");
 
-      // After `ready` we should be able to fetch the synth's metadata.
-      const metadata = await client.getSynth(compositionId, readySynthName!);
-      expect(metadata.name).toBe(readySynthName);
-      expect(Array.isArray(metadata.params)).toBe(true);
-    },
-    // Generous per-test timeout on top of the global one; if a real LLM
-    // takes this long something is wrong and we want a clean failure.
-    150_000
-  );
+    // After `ready` we should be able to fetch the synth's metadata.
+    const metadata = await client.getSynth(compositionId, readySynthName!);
+    expect(metadata.name).toBe(readySynthName);
+    expect(Array.isArray(metadata.params)).toBe(true);
+  }, // Generous per-test timeout on top of the global one; if a real LLM
+  // takes this long something is wrong and we want a clean failure.
+  150_000);
 });

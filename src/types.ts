@@ -30,7 +30,12 @@ export interface UnderscoreConfig {
   /**
    * Base URL where WASM files are served.
    * Must point to a directory containing the supersonic-scsynth dist files.
-   * Example: '/supersonic/'
+   * Example: '/supersonic/'.
+   *
+   * Only consumed when you call `init()` or `loadSynth()`. Server-side
+   * Node usage (e.g. calling `startGeneration` from a backend proxy)
+   * never touches the audio engine, so this field can be omitted there.
+   * Defaults to '/supersonic/'.
    */
   wasmBaseUrl?: string;
 
@@ -87,10 +92,6 @@ export interface ParamMetadata {
   /** Human-readable description */
   description: string;
 }
-
-
-
-
 
 /**
  * Metadata for an audio sample used by a synth.
@@ -244,11 +245,17 @@ export type SynthStateListener = (state: SynthState) => void;
  * users can introspect the full protocol without SDK changes.
  */
 export type GenerationEventType =
+  /** LLM reasoning chunk. `content` holds the partial text. */
   | "thinking"
+  /** Phase/status change (e.g. "compiling"). `content` holds the label. */
   | "progress"
+  /** Streaming SuperCollider code chunk. `content` holds the partial text. */
   | "code"
+  /** Generation complete. `synthName` identifies the new synth. */
   | "ready"
+  /** Generation failed or was declined. `error` holds the message. */
   | "error"
+  /** Unmapped server event. `raw` holds the unmodified payload. */
   | "raw";
 
 /**
