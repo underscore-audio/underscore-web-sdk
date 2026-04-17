@@ -22,30 +22,32 @@ npm install @underscore/sdk supersonic-scsynth
 <details>
 <summary>Installing from GitHub (private repo access)</summary>
 
-```bash
-# Clone and reference locally
-git clone https://github.com/underscore-audio/underscore-web-sdk.git
-# In package.json: "@underscore/sdk": "file:../path/to/underscore-web-sdk"
+The SDK lives in its own standalone repo: `underscore-audio/underscore-web-sdk`.
 
-# Or install directly from GitHub
+```bash
+# Install directly from GitHub
 npm install github:underscore-audio/underscore-web-sdk supersonic-scsynth
+
+# Or reference a local clone in your package.json
+# "@underscore/sdk": "file:../path/to/underscore-web-sdk"
 ```
+
 </details>
 
 ## Quick Start
 
 ```typescript
-import { Underscore } from '@underscore/sdk';
+import { Underscore } from "@underscore/sdk";
 
 const client = new Underscore({
-  apiKey: 'us_pub_your_publishable_key',
-  wasmBaseUrl: '/supersonic/',
+  apiKey: "us_pub_your_publishable_key",
+  wasmBaseUrl: "/supersonic/",
 });
 
 // Initialize from user interaction (required by browsers)
-document.getElementById('play')?.addEventListener('click', async () => {
+document.getElementById("play")?.addEventListener("click", async () => {
   await client.init();
-  const synth = await client.loadSynth('cmp_abc123');
+  const synth = await client.loadSynth("cmp_abc123");
   await synth.play();
 });
 ```
@@ -58,10 +60,10 @@ Sign up at [underscore.audio](https://underscore.audio) -- a publishable API key
 
 Underscore uses two key types:
 
-| Type | Prefix | Where to use | Scopes |
-|------|--------|-------------|--------|
-| **Publishable** | `us_pub_` | Browser / client-side code | `synth:read` only |
-| **Secret** | `us_sec_` | Server-side only | `synth:read`, `synth:generate` |
+| Type            | Prefix    | Where to use               | Scopes                         |
+| --------------- | --------- | -------------------------- | ------------------------------ |
+| **Publishable** | `us_pub_` | Browser / client-side code | `synth:read` only              |
+| **Secret**      | `us_sec_` | Server-side only           | `synth:read`, `synth:generate` |
 
 Use your **publishable** key in the browser SDK. Use your **secret** key on your server for generating new synths (which consumes LLM credits).
 
@@ -88,15 +90,16 @@ Cross-Origin-Embedder-Policy: require-corp
 export default defineConfig({
   server: {
     headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
     },
   },
   optimizeDeps: {
-    exclude: ['@underscore/sdk', 'supersonic-scsynth'],
+    exclude: ["@underscore/sdk", "supersonic-scsynth"],
   },
 });
 ```
+
 </details>
 
 <details>
@@ -106,28 +109,43 @@ export default defineConfig({
 // next.config.js
 module.exports = {
   async headers() {
-    return [{
-      source: '/:path*',
-      headers: [
-        { key: 'Cross-Origin-Opener-Policy', value: 'same-origin' },
-        { key: 'Cross-Origin-Embedder-Policy', value: 'require-corp' },
-      ],
-    }];
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+          { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+        ],
+      },
+    ];
   },
 };
 ```
+
 </details>
 
 ## Example
 
-See [`examples/`](./examples/) for a complete working example:
+See [`examples/`](./examples/) for a complete working example that
+demonstrates the recommended backend-proxy pattern: a tiny Express
+server holds the **secret** key and proxies generation, while the
+browser uses only a **publishable** key for playback.
 
 ```bash
 cd examples
 npm install
 npm run copy-assets
+
+# Terminal 1: backend proxy (holds UNDERSCORE_SECRET_KEY)
+UNDERSCORE_SECRET_KEY=us_sec_your_secret npm run server
+
+# Terminal 2: browser app (uses the publishable key)
 npm run dev
 ```
+
+If you only need playback, skip `npm run server` and just run
+`npm run dev`. See [`examples/README.md`](./examples/README.md) for the
+full set of environment variables.
 
 ## API Reference
 
@@ -135,92 +153,153 @@ npm run dev
 
 ```typescript
 const client = new Underscore({
-  apiKey: 'us_pub_...',                  // Required (publishable key for browser)
-  wasmBaseUrl: '/supersonic/',           // Required
-  baseUrl: 'https://underscore.audio',   // Optional
-  logLevel: 'none',                      // Optional: debug | info | warn | error | none
+  apiKey: "us_pub_...", // Required (publishable key for browser)
+  wasmBaseUrl: "/supersonic/", // Required for browser playback; omit server-side
+  baseUrl: "https://underscore.audio", // Optional
+  logLevel: "none", // Optional: debug | info | warn | error | none
 });
 
-await client.init();                     // Initialize audio engine
-client.isInitialized();                  // Check status
-await client.listSynths('cmp_...');      // List synths in composition
-await client.loadSynth('cmp_...', name); // Load synth for playback
+await client.init(); // Initialize audio engine
+client.isInitialized(); // Check status
+await client.listSynths("cmp_..."); // List synths in composition
+await client.loadSynth("cmp_...", name); // Load synth for playback
 ```
 
 ### Synth
 
 ```typescript
-await synth.play();                      // Start playback
-synth.stop();                            // Stop playback
-synth.isPlaying();                       // Check if playing
+await synth.play(); // Start playback
+synth.stop(); // Stop playback
+synth.isPlaying(); // Check if playing
 
-synth.setParam('cutoff', 2000);          // Set parameter
-synth.setParams({ cutoff: 2000 });       // Set multiple
-synth.resetParams();                     // Reset to defaults
+synth.setParam("cutoff", 2000); // Set parameter
+synth.setParams({ cutoff: 2000 }); // Set multiple
+synth.resetParams(); // Reset to defaults
 
-synth.name;                              // Synth name
-synth.description;                       // Description
-synth.params;                            // ParamMetadata[]
+synth.name; // Synth name
+synth.description; // Description
+synth.params; // ParamMetadata[]
 ```
 
-### Generation (requires secret key)
+### Generation (backend-proxy pattern, recommended)
+
+Generation consumes LLM credits and requires a **secret** key (`us_sec_...`)
+that must never ship to the browser. The SDK splits generation into two
+primitives so each half can run in its correct environment.
+
+On your server (Node, holds the secret key):
 
 ```typescript
-// Initialize with a secret key (us_sec_...) -- server-side only!
-for await (const event of client.generate('cmp_...', 'warm analog pad')) {
+import { Underscore } from "@underscore/sdk";
+
+// wasmBaseUrl is only consumed by init()/loadSynth(), so it can be
+// omitted when the SDK is used purely for its HTTP client methods.
+const server = new Underscore({
+  apiKey: process.env.UNDERSCORE_SECRET_KEY!, // us_sec_...
+});
+
+// Expose a route your browser can call with { compositionId, description }.
+const { jobId, streamUrl } = await server.startGeneration(compositionId, description);
+// Return { streamUrl } (and optionally the host) to the browser.
+```
+
+In the browser (uses a publishable key for read/playback):
+
+```typescript
+for await (const event of client.subscribeToGeneration(streamUrl, compositionId)) {
   switch (event.type) {
-    case 'thinking': console.log(event.content); break;
-    case 'progress': console.log(event.content); break;
-    case 'ready':    await event.synth.play(); break;
-    case 'error':    console.error(event.error); break;
+    case "thinking":
+      console.log(event.content);
+      break;
+    case "progress":
+      console.log(event.content);
+      break;
+    case "ready":
+      await event.synth?.play();
+      break;
+    case "error":
+      console.error(event.error);
+      break;
+    case "raw":
+      /* unmapped server event, inspect event.raw */ break;
   }
+}
+```
+
+The `streamUrl` contains an unguessable `jobId` that acts as a capability
+token, so the browser can subscribe without any API key.
+
+### Generation (trusted-environment one-shot)
+
+`client.generate(compositionId, description)` chains both halves in a
+single call. It requires BOTH a usable secret key AND an `EventSource`
+global, so it's only safe in trusted environments like a Node CLI with
+an EventSource polyfill, an Electron app, or a local dev page. Do not
+use it in production browser apps -- use the backend-proxy pattern above.
+
+```typescript
+for await (const event of client.generate("cmp_...", "warm analog pad")) {
+  // same event shape as subscribeToGeneration
 }
 ```
 
 ### Error Handling
 
 ```typescript
-import { ApiError, AudioError, SynthError, ValidationError } from '@underscore/sdk';
+import { ApiError, AudioError, SynthError, ValidationError } from "@underscore/sdk";
 
 try {
-  await client.loadSynth('invalid');
+  await client.loadSynth("invalid");
 } catch (error) {
-  if (error instanceof ApiError) { /* HTTP error */ }
-  if (error instanceof ValidationError) { /* Schema mismatch */ }
-  if (error instanceof AudioError) { /* WASM/WebAudio error */ }
-  if (error instanceof SynthError) { /* Playback error */ }
+  if (error instanceof ApiError) {
+    /* HTTP error */
+  }
+  if (error instanceof ValidationError) {
+    /* Schema mismatch */
+  }
+  if (error instanceof AudioError) {
+    /* WASM/WebAudio error */
+  }
+  if (error instanceof SynthError) {
+    /* Playback error */
+  }
 }
 ```
 
 ## Browser Support
 
-| Browser | Version |
-|---------|---------|
-| Chrome | 80+ |
-| Firefox | 79+ |
-| Safari | 15.4+ |
-| Edge | 80+ |
-| iOS Safari | 15.4+ |
+| Browser    | Version |
+| ---------- | ------- |
+| Chrome     | 80+     |
+| Firefox    | 79+     |
+| Safari     | 15.4+   |
+| Edge       | 80+     |
+| iOS Safari | 15.4+   |
 
 Requires: SharedArrayBuffer, AudioWorklet, WebAssembly
 
 ## Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| "Audio not initialized" | Call `client.init()` from a click handler |
-| WASM not loading | Run `npx underscore-sdk ./public/supersonic` and check headers |
-| No sound | Check `client.isInitialized()` and `synth.isPlaying()` |
-| "Composition not found" | Verify ID format (`cmp_...`) and visibility settings |
+| Issue                   | Solution                                                       |
+| ----------------------- | -------------------------------------------------------------- |
+| "Audio not initialized" | Call `client.init()` from a click handler                      |
+| WASM not loading        | Run `npx underscore-sdk ./public/supersonic` and check headers |
+| No sound                | Check `client.isInitialized()` and `synth.isPlaying()`         |
+| "Composition not found" | Verify ID format (`cmp_...`) and visibility settings           |
 
 ## Development
 
 ```bash
 npm install     # Install dependencies
 npm run build   # Build
-npm test        # Run tests (110 tests)
+npm test        # Run fast mocked tests (no network)
+npm run test:live # Run tests against a real Underscore API
 npm run lint    # Lint
 ```
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md#live-tests) for the env vars the
+live suite reads; the same harness works against local
+(`http://localhost:3333`) and production (`https://underscore.audio`).
 
 ## API Compatibility
 

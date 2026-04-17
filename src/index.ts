@@ -26,7 +26,12 @@
 import { ApiClient } from "./client.js";
 import { AudioEngine } from "./audio.js";
 import { Synth } from "./synth.js";
-import { streamGeneration } from "./generation.js";
+import {
+  startGeneration,
+  subscribeToGeneration,
+  streamGeneration,
+  type StartGenerationResult,
+} from "./generation.js";
 import { createLogger, type Logger } from "./debug.js";
 import { SynthError } from "./errors.js";
 import type {
@@ -41,15 +46,16 @@ import type {
 
 export * from "./types.js";
 export { Synth } from "./synth.js";
+export { UnderscoreError, ApiError, AudioError, SynthError, ValidationError } from "./errors.js";
 export {
-  UnderscoreError,
-  ApiError,
-  AudioError,
-  SynthError,
-  ValidationError,
-} from "./errors.js";
+  startGeneration,
+  subscribeToGeneration,
+  type StartGenerationOptions,
+  type StartGenerationResult,
+} from "./generation.js";
 
 const DEFAULT_WASM_BASE_URL = "/supersonic/";
+const DEFAULT_API_BASE_URL = "https://underscore.audio";
 
 export class Underscore {
   private client: ApiClient;
@@ -125,7 +131,6 @@ export class Underscore {
    * @param synthName - The synth name (optional, defaults to the latest synth)
    */
   async loadSynth(compositionId: string, synthName?: string): Promise<Synth> {
-    // Get synth name if not provided
     let name = synthName;
     if (!name) {
       const synths = await this.client.listSynths(compositionId);
@@ -135,24 +140,23 @@ export class Underscore {
       name = synths[synths.length - 1].name;
     }
 
-    // Get synth metadata
     const metadata = await this.client.getSynth(compositionId, name);
 
-    // Clear any previously loaded buffers (from a different synth)
+    /*
+     * Reload order matters: buffers must be cleared and samples uploaded
+     * BEFORE the synthdef is loaded, otherwise the new synth can briefly
+     * reference stale/missing buffer numbers on the server side.
+     */
     this.engine.clearBuffers();
-
-    // Load samples if present (must be done BEFORE loading synthdef)
     if (metadata.samples && metadata.samples.length > 0) {
       this.log.info(`Loading ${metadata.samples.length} samples...`);
       await this.engine.loadSamples(metadata.samples);
       this.log.info("Samples loaded");
     }
 
-    // Fetch and load the synthdef
     const synthdefData = await this.client.fetchSynthdef(compositionId, name);
     await this.engine.loadSynthdefFromData(synthdefData);
 
-    // Create and return the Synth object
     const synth = new Synth(
       this.engine,
       compositionId,
@@ -167,27 +171,87 @@ export class Underscore {
   }
 
   /**
-   * Generate a new synth using natural language.
-   * Requires a **secret** key (`us_sec_...`). Will be rejected with 403 if called with a publishable key.
+   * Start a generation job. Server-side only.
    *
-   * Yields events as the generation progresses.
-   * When a 'ready' event is received, call loadSynth() to get the playable synth.
+   * Requires a **secret** key (`us_sec_...`). Uses only `fetch`, so it
+   * works in Node and any runtime with a global `fetch`. Return the
+   * `streamUrl` to your browser client and have it call
+   * {@link Underscore.subscribeToGeneration} to observe progress.
    *
-   * @param compositionId - The composition to generate in
-   * @param description - Natural language description of the sound
+   * This is the safe entry point for the backend-proxy pattern:
+   * secret key never touches the browser.
+   */
+  async startGeneration(
+    compositionId: string,
+    description: string
+  ): Promise<StartGenerationResult> {
+    const baseUrl = this.config.baseUrl || DEFAULT_API_BASE_URL;
+    return startGeneration(baseUrl, this.config.apiKey, { compositionId, description });
+  }
+
+  /**
+   * Subscribe to a generation stream. Browser-only (requires `EventSource`).
+   *
+   * Accepts the relative `streamUrl` returned by
+   * {@link Underscore.startGeneration} (or any absolute stream URL).
+   * No API key is required; the stream is protected by the unguessable
+   * `jobId` embedded in the URL.
+   *
+   * @param streamUrlOrPath Absolute or relative stream URL from `startGeneration`.
+   * @param compositionId   Optional. When provided, the SDK will auto-load the
+   *                        finished synth on the terminal `ready` event and
+   *                        attach it as `event.synth`, ready to `.play()`.
+   *                        When omitted, consumers receive protocol events
+   *                        only and can load the synth themselves via
+   *                        {@link Underscore.loadSynth}.
+   */
+  async *subscribeToGeneration(
+    streamUrlOrPath: string,
+    compositionId?: string
+  ): AsyncGenerator<GenerationEvent & { synth?: Synth }> {
+    const baseUrl = this.config.baseUrl || DEFAULT_API_BASE_URL;
+
+    for await (const event of subscribeToGeneration(streamUrlOrPath, baseUrl)) {
+      if (event.type === "ready" && event.synthName && compositionId) {
+        try {
+          const synth = await this.loadSynth(compositionId, event.synthName);
+          yield { ...event, synth };
+        } catch (error) {
+          yield {
+            type: "error",
+            error: error instanceof Error ? error.message : "Failed to load synth",
+          };
+        }
+      } else {
+        yield event;
+      }
+    }
+  }
+
+  /**
+   * Legacy combined generation flow.
+   *
+   * Chains {@link Underscore.startGeneration} and
+   * {@link Underscore.subscribeToGeneration} in a single call. This is
+   * only usable in "trusted" environments that have BOTH network access
+   * capable of using a secret key AND an `EventSource` global (e.g. a
+   * Node CLI with an EventSource polyfill, or an Electron app).
+   *
+   * Third-party browser apps must use the backend-proxy pattern instead:
+   * run `startGeneration` on your server, forward the returned
+   * `streamUrl` to the browser, and call `subscribeToGeneration` there.
    */
   async *generate(
     compositionId: string,
     description: string
   ): AsyncGenerator<GenerationEvent & { synth?: Synth }> {
-    const baseUrl = this.config.baseUrl || "https://underscore.audio";
+    const baseUrl = this.config.baseUrl || DEFAULT_API_BASE_URL;
 
     for await (const event of streamGeneration(baseUrl, this.config.apiKey, {
       compositionId,
       description,
     })) {
       if (event.type === "ready" && event.synthName) {
-        // Load the synth and include it in the event
         try {
           const synth = await this.loadSynth(compositionId, event.synthName);
           yield { ...event, synth };

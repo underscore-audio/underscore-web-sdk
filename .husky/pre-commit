@@ -1,0 +1,9 @@
+# Fast local safety net. Order is cheapest-first so you see failures
+# quickly: auto-fix + lint on staged files, then whole-project typecheck,
+# then the mocked test suite (no network, runs in ~300ms).
+# Live tests are NOT run here -- they need credentials and cost LLM tokens.
+# If you really need to bypass (e.g. WIP branch, known broken), use:
+#   git commit --no-verify
+npx lint-staged
+npm run typecheck
+npm test

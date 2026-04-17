@@ -53,7 +53,7 @@ export class AudioEngine {
     return () => this.listeners.delete(listener);
   }
 
-  private notify() {
+  private notify(): void {
     const state = this.state;
     this.listeners.forEach((l) => l(state));
   }
@@ -74,8 +74,7 @@ export class AudioEngine {
   private async doInit(): Promise<void> {
     const { SuperSonic } = await import("supersonic-scsynth");
 
-    const workerBaseUrl =
-      this.config.workerBaseUrl || `${this.config.wasmBaseUrl}workers/`;
+    const workerBaseUrl = this.config.workerBaseUrl || `${this.config.wasmBaseUrl}workers/`;
 
     this.sonic = new SuperSonic({
       workerBaseURL: workerBaseUrl,
@@ -136,14 +135,25 @@ export class AudioEngine {
   async loadSamples(samples: SampleMetadata[]): Promise<void> {
     if (!samples || samples.length === 0) return;
 
+    /*
+     * Validate URLs up-front, before any audio init work. Samples must
+     * carry a fetchable `url` (typically a signed S3 URL from the SDK
+     * synth endpoint). Silently skipping a sample with no URL would hide
+     * a real API/SDK contract break -- the synth would load but be silent
+     * with no obvious cause. Raise loudly so the caller notices.
+     */
+    const missingUrl = samples.find((s) => !s.url);
+    if (missingUrl) {
+      throw new AudioError(
+        `Sample "${missingUrl.id}" is missing url. The API synth metadata ` +
+          `must include signed sample URLs; check that your Underscore API ` +
+          `is up to date.`
+      );
+    }
+
     await this.init();
 
     for (const sample of samples) {
-      if (!sample.url) {
-        this.log.warn(`Sample "${sample.id}" has no URL, skipping`);
-        continue;
-      }
-
       if (this.loadedBuffers.has(sample.bufferNum)) {
         this.log.debug(`Buffer ${sample.bufferNum} already loaded, skipping`);
         continue;
@@ -151,7 +161,7 @@ export class AudioEngine {
 
       try {
         this.log.debug(`Loading sample "${sample.id}" into buffer ${sample.bufferNum}`);
-        await this.sonic!.loadSample(sample.bufferNum, sample.url);
+        await this.sonic!.loadSample(sample.bufferNum, sample.url!);
         this.loadedBuffers.add(sample.bufferNum);
         this.log.info(`Loaded sample "${sample.id}"`);
       } catch (error) {
