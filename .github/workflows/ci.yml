@@ -105,6 +105,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: [wizard]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # id-token: write is required for npm Trusted Publishing via OIDC.
+    # contents: read is the default; we declare it explicitly because setting
+    # any permission resets all others to none unless listed.
+    permissions:
+      id-token: write
+      contents: read
     defaults:
       run:
         working-directory: packages/wizard
@@ -114,10 +120,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: packages/wizard/package-lock.json
           registry-url: "https://registry.npmjs.org"
+
+      # npm Trusted Publishing requires npm >= 11.5.1; Node 22 ships with npm 10.x.
+      - name: Upgrade npm
+        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: npm ci
@@ -136,9 +146,7 @@ jobs:
 
       - name: Publish to npm
         if: steps.check.outputs.publish == 'true'
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
 
   publish:
     runs-on: ubuntu-latest
@@ -149,15 +157,21 @@ jobs:
     # have a self-contained live-API fixture worth running on every publish.
     needs: [test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm
+        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: npm ci
@@ -176,6 +190,4 @@ jobs:
 
       - name: Publish to npm
         if: steps.check.outputs.publish == 'true'
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
