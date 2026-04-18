@@ -66,7 +66,7 @@ describe("wrapperSource", () => {
   it("uses import.meta.env for Vite frameworks", () => {
     const src = wrapperSource("vite-react");
     expect(src).toContain("import.meta.env.VITE_UNDERSCORE_PUBLISHABLE_KEY");
-    expect(src).toContain('import { Underscore } from "@underscore/sdk"');
+    expect(src).toContain('import { Underscore } from "@underscore-audio/sdk"');
   });
 
   it("uses process.env.NEXT_PUBLIC_ for Next", () => {

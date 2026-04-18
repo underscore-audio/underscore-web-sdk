@@ -1,5 +1,5 @@
 {
-  "name": "@underscore/wizard",
+  "name": "@underscore-audio/wizard",
   "version": "0.1.0",
   "type": "module",
   "description": "Install and configure Underscore in an existing web project in under five minutes",

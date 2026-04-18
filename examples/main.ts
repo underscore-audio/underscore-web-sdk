@@ -16,7 +16,7 @@ import {
   AudioError,
   SynthError,
   ValidationError,
-} from "@underscore/sdk";
+} from "@underscore-audio/sdk";
 
 const apiKeyInput = document.getElementById("apiKey") as HTMLInputElement;
 const compositionIdInput = document.getElementById("compositionId") as HTMLInputElement;

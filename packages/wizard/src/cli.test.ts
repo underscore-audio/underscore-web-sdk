@@ -96,7 +96,7 @@ describe("argsToOptions", () => {
 describe("helpText", () => {
   it("includes the key flags", () => {
     const text = helpText();
-    expect(text).toContain("@underscore/wizard");
+    expect(text).toContain("@underscore-audio/wizard");
     expect(text).toContain("--skip-install");
     expect(text).toContain("--non-interactive");
   });

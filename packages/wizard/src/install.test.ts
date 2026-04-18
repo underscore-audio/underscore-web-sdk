@@ -37,10 +37,10 @@ function options(overrides: Partial<WizardOptions> = {}): WizardOptions {
 
 describe("installDependencies", () => {
   it.each([
-    ["npm", "npm", ["install", "@underscore/sdk", "supersonic-scsynth@^0.14.0"]],
-    ["pnpm", "pnpm", ["add", "@underscore/sdk", "supersonic-scsynth@^0.14.0"]],
-    ["yarn", "yarn", ["add", "@underscore/sdk", "supersonic-scsynth@^0.14.0"]],
-    ["bun", "bun", ["add", "@underscore/sdk", "supersonic-scsynth@^0.14.0"]],
+    ["npm", "npm", ["install", "@underscore-audio/sdk", "supersonic-scsynth@^0.14.0"]],
+    ["pnpm", "pnpm", ["add", "@underscore-audio/sdk", "supersonic-scsynth@^0.14.0"]],
+    ["yarn", "yarn", ["add", "@underscore-audio/sdk", "supersonic-scsynth@^0.14.0"]],
+    ["bun", "bun", ["add", "@underscore-audio/sdk", "supersonic-scsynth@^0.14.0"]],
   ] as const)("runs %s with the right args", async (pm, expectedCmd, expectedArgs) => {
     const run = vi.fn(async () => {});
     await installDependencies(project({ packageManager: pm }), options(), { run });
@@ -62,7 +62,7 @@ describe("installDependencies", () => {
       project({ packageManager: "npm" }),
       options({
         tarballOverrides: {
-          "@underscore/sdk": "/tmp/tarballs/underscore-sdk-0.1.0.tgz",
+          "@underscore-audio/sdk": "/tmp/tarballs/underscore-sdk-0.1.0.tgz",
           "supersonic-scsynth": "/tmp/tarballs/supersonic-scsynth-1.2.3.tgz",
         },
       }),
@@ -85,7 +85,7 @@ describe("installDependencies", () => {
       project({ packageManager: "pnpm" }),
       options({
         tarballOverrides: {
-          "@underscore/sdk": "/tmp/tarballs/underscore-sdk-0.1.0.tgz",
+          "@underscore-audio/sdk": "/tmp/tarballs/underscore-sdk-0.1.0.tgz",
         },
       }),
       { run }
@@ -110,7 +110,7 @@ describe("installDependencies", () => {
     );
     expect(run).toHaveBeenCalledWith(
       "npm",
-      ["install", "@underscore/sdk", "/tmp/tarballs/supersonic-scsynth-0.14.0.tgz"],
+      ["install", "@underscore-audio/sdk", "/tmp/tarballs/supersonic-scsynth-0.14.0.tgz"],
       { cwd: "/tmp/app" }
     );
   });

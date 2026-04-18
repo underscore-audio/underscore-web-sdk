@@ -1,4 +1,4 @@
-# Contributing to @underscore/sdk
+# Contributing to @underscore-audio/sdk
 
 Thank you for your interest in contributing to the Underscore SDK.
 

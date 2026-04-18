@@ -5,7 +5,7 @@
  *
  * @example
  * ```typescript
- * import { Underscore } from '@underscore/sdk';
+ * import { Underscore } from '@underscore-audio/sdk';
  *
  * const client = new Underscore({
  *   apiKey: 'us_...',

@@ -128,7 +128,7 @@ jobs:
       - name: Check if version changed
         id: check
         run: |
-          PUBLISHED_VERSION=$(npm view @underscore/wizard version 2>/dev/null || echo "0.0.0")
+          PUBLISHED_VERSION=$(npm view @underscore-audio/wizard version 2>/dev/null || echo "0.0.0")
           CURRENT_VERSION=$(node -p "require('./package.json').version")
           if [ "$PUBLISHED_VERSION" != "$CURRENT_VERSION" ]; then
             echo "publish=true" >> $GITHUB_OUTPUT
@@ -163,7 +163,7 @@ jobs:
       - name: Check if version changed
         id: check
         run: |
-          PUBLISHED_VERSION=$(npm view @underscore/sdk version 2>/dev/null || echo "0.0.0")
+          PUBLISHED_VERSION=$(npm view @underscore-audio/sdk version 2>/dev/null || echo "0.0.0")
           CURRENT_VERSION=$(node -p "require('./package.json').version")
           if [ "$PUBLISHED_VERSION" != "$CURRENT_VERSION" ]; then
             echo "publish=true" >> $GITHUB_OUTPUT

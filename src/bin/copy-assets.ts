@@ -3,7 +3,7 @@
  * CLI tool to copy supersonic-scsynth WASM and worker files to a target directory.
  *
  * Usage:
- *   npx @underscore/sdk copy-assets ./public/supersonic
+ *   npx @underscore-audio/sdk copy-assets ./public/supersonic
  *
  * This copies the necessary files from supersonic-scsynth to your public directory
  * so they can be served alongside your application.
@@ -63,10 +63,10 @@ async function main(): Promise<void> {
 Underscore SDK - Copy WASM Assets
 
 Usage:
-  npx @underscore/sdk copy-assets <target-directory>
+  npx @underscore-audio/sdk copy-assets <target-directory>
 
 Example:
-  npx @underscore/sdk copy-assets ./public/supersonic
+  npx @underscore-audio/sdk copy-assets ./public/supersonic
 
 This copies the supersonic-scsynth WASM and worker files to your target directory.
 Your server must serve these files with the correct MIME types and CORS headers.

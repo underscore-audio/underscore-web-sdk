@@ -2,7 +2,7 @@
  * Dependency install + WASM asset copy.
  *
  * Two responsibilities:
- *   1. Install @underscore/sdk + supersonic-scsynth using the project's
+ *   1. Install @underscore-audio/sdk + supersonic-scsynth using the project's
  *      package manager (as detected in detect.ts).
  *   2. Invoke the underscore-sdk `copy-assets` bin to populate the public
  *      directory with WASM + workers. We shell out rather than importing
@@ -31,7 +31,7 @@ export interface InstallDependencies {
  * silently for every new user. Tests that use tarballOverrides replace
  * the spec wholesale, so the pin only ever affects real installs.
  */
-const SDK_PACKAGES = ["@underscore/sdk", "supersonic-scsynth@^0.14.0"] as const;
+const SDK_PACKAGES = ["@underscore-audio/sdk", "supersonic-scsynth@^0.14.0"] as const;
 
 /**
  * Package-manager specific install commands. Kept as a data table so the
@@ -42,7 +42,7 @@ const SDK_PACKAGES = ["@underscore/sdk", "supersonic-scsynth@^0.14.0"] as const;
  * with its local tarball path. This keeps e2e runs off the public registry
  * without changing the call site in run.ts. Packages not in the override
  * map pass through as their normal registry name, so partial overrides
- * (e.g. just "@underscore/sdk") still work.
+ * (e.g. just "@underscore-audio/sdk") still work.
  */
 function installCommand(
   pm: PackageManager,
@@ -103,7 +103,7 @@ export async function installDependencies(
  * now a declared dep (via `installDependencies` above) and therefore
  * resolvable as a local binary.
  *
- * Tradeoff: we could import from "@underscore/sdk/bin/copy-assets" directly
+ * Tradeoff: we could import from "@underscore-audio/sdk/bin/copy-assets" directly
  * and avoid the subprocess, but then a change to the SDK's bin layout would
  * silently break the wizard. Shelling out to the published bin keeps us
  * honest about what "users running npx ..." would see.
