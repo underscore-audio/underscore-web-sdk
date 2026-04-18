@@ -320,6 +320,64 @@ Compatible with Underscore API v1.
 - [API Documentation](https://underscore.audio/docs/web-sdk)
 - [API Routes](https://github.com/po-studio/underscore/blob/main/api/src/routes/sdk.ts)
 
+## Contributing / local testing
+
+### Testing the wizard locally
+
+```bash
+cd packages/wizard
+npm install
+npm run build
+npm test                              # unit tests (vitest)
+node dist/cli.js --help               # invoke the CLI locally
+```
+
+Full install-with-AI e2e coverage lives in the sibling `underscore`
+repo. From there:
+
+```bash
+make e2e-tarballs          # pack this repo's SDK + wizard
+make test-install-wizard   # L2 + L3 Playwright suite
+```
+
+`make e2e-tarballs` expects `underscore-web-sdk` to be checked out
+next to `underscore` on disk.
+
+### Publishing the wizard
+
+CI auto-publishes `@underscore/wizard` to npm when a tag matching
+`wizard-vX.Y.Z` is pushed. One-time setup:
+
+1. Add `NPM_TOKEN` to this repo's GitHub Actions secrets (automation
+   token with publish rights to the `@underscore` scope).
+2. Bump `packages/wizard/package.json` version.
+3. Tag + push:
+
+   ```bash
+   git tag wizard-v0.1.0
+   git push origin wizard-v0.1.0
+   ```
+
+The `publish-wizard` job in
+[.github/workflows/ci.yml](.github/workflows/ci.yml) handles the rest.
+
+## Known limitations / launch checklist
+
+Tracked in Linear under the "Install with AI launch" parent. Summary:
+
+- Production blockers (P0): publish `@underscore/wizard@0.1.0` to npm
+  (the README above advertises `npx @underscore/wizard@latest` which
+  404s until this ships).
+- Should-do before announcement (P1): dedicated "Install with AI"
+  docs page with screenshots, wizard install telemetry, L4 audio
+  smoke in the main repo's e2e suite.
+- Post-launch (P2): dynamic `supersonic-scsynth` peer-dep lookup
+  instead of the hardcoded `^0.14.0` pin in
+  [packages/wizard/src/install.ts](packages/wizard/src/install.ts),
+  AST-safe Next.js config patcher (today `patch.ts` returns
+  `manual-required` for Next.js), wizard cancel/restart UX, and
+  cross-repo CI for tarball consumption.
+
 ## License
 
 [MIT](LICENSE)
