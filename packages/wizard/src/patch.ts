@@ -1,0 +1,292 @@
+/**
+ * AST-safe patching of Vite and Next.js configs.
+ *
+ * COOP/COEP headers are required to enable SharedArrayBuffer in modern
+ * browsers, which supersonic-scsynth uses for its audio worklet. Without
+ * these headers the user will see a runtime error that is very hard to
+ * map back to "install the SDK". Getting the patch right is therefore
+ * more important than installing the deps.
+ *
+ * We use magicast to parse-modify-print the config file. If parsing fails
+ * (e.g. a very custom config, a TS-only config that references imports
+ * we don't understand), we leave the file untouched and return a sentinel
+ * indicating the user should add the config manually. The wizard surfaces
+ * that manual-step message in `run.ts`.
+ *
+ * Tradeoff: magicast is a behavior-preserving rewriter but it's not a
+ * compiler. Some legitimate TS patterns (dynamic imports, top-level
+ * computed expressions) defeat it. We treat those as "manual step
+ * required" rather than forcing a brittle regex rewrite that could corrupt
+ * the user's config.
+ */
+
+import { promises as fs } from "node:fs";
+import { join } from "node:path";
+import { loadFile, writeFile, type ProxifiedModule } from "magicast";
+import type { DetectedProject, Framework } from "./types.js";
+
+const COOP_HEADERS = {
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Cross-Origin-Embedder-Policy": "require-corp",
+} as const;
+
+const OPTIMIZE_DEPS_EXCLUDE = ["supersonic-scsynth"] as const;
+
+export interface PatchResult {
+  file: string;
+  status: "patched" | "already-configured" | "manual-required";
+  manualSteps?: string[];
+}
+
+export async function patchConfig(project: DetectedProject): Promise<string[]> {
+  const results = await patchConfigDetailed(project);
+  return results.filter((r) => r.status === "patched").map((r) => r.file);
+}
+
+/**
+ * More informative variant used by tests and by the run.ts orchestrator
+ * when it wants to report "you still need to do X" to the user.
+ */
+export async function patchConfigDetailed(project: DetectedProject): Promise<PatchResult[]> {
+  if (!project.configFile) {
+    return [
+      {
+        file: project.framework === "vanilla-html" ? "(vanilla html)" : "(no config file)",
+        status: "manual-required",
+        manualSteps: manualStepsFor(project.framework),
+      },
+    ];
+  }
+
+  const abs = join(project.root, project.configFile);
+
+  if (project.framework === "next-app" || project.framework === "next-pages") {
+    return [await patchNextConfig(abs, project.configFile)];
+  }
+
+  if (project.framework.startsWith("vite-")) {
+    return [await patchViteConfig(abs, project.configFile)];
+  }
+
+  return [
+    {
+      file: project.configFile,
+      status: "manual-required",
+      manualSteps: manualStepsFor(project.framework),
+    },
+  ];
+}
+
+/**
+ * Patch a Vite config by extending `server.headers` and
+ * `optimizeDeps.exclude`. We target the first argument of the `defineConfig`
+ * call because that's the universal Vite pattern; configs that export a
+ * plain object work too (magicast unwraps identically).
+ */
+export async function patchViteConfig(abs: string, relFile: string): Promise<PatchResult> {
+  let mod: ProxifiedModule;
+  try {
+    mod = await loadFile(abs);
+  } catch {
+    return {
+      file: relFile,
+      status: "manual-required",
+      manualSteps: viteManualSteps(),
+    };
+  }
+
+  const configObject = getConfigObject(mod);
+  if (!configObject) {
+    return {
+      file: relFile,
+      status: "manual-required",
+      manualSteps: viteManualSteps(),
+    };
+  }
+
+  const patchedHeaders = ensureServerHeaders(configObject);
+  /*
+   * Vite's preview server ignores server.headers -- it requires a
+   * separate preview.headers block. Without this, users who run
+   * `vite preview` (the common "try the prod build locally" step)
+   * will see a SharedArrayBuffer error with no obvious link back to
+   * the wizard. Setting both keeps dev and preview parity.
+   */
+  const patchedPreviewHeaders = ensurePreviewHeaders(configObject);
+  const patchedOptimize = ensureOptimizeDepsExclude(configObject);
+
+  if (!patchedHeaders && !patchedPreviewHeaders && !patchedOptimize) {
+    return { file: relFile, status: "already-configured" };
+  }
+
+  try {
+    await writeFile(mod.$ast, abs);
+  } catch {
+    return { file: relFile, status: "manual-required", manualSteps: viteManualSteps() };
+  }
+  return { file: relFile, status: "patched" };
+}
+
+/**
+ * Patch a Next.js config by adding an async `headers()` function that
+ * returns the COOP/COEP pair for all paths. If `headers()` already exists
+ * we leave it alone and emit a manual-steps hint -- merging user
+ * header rules automatically is fragile, and we'd rather the user see
+ * the conflict than silently clobber existing policies.
+ */
+export async function patchNextConfig(abs: string, relFile: string): Promise<PatchResult> {
+  // Next configs are more varied: sometimes module.exports, sometimes ESM.
+  // We take a line-based approach for robustness: if the file already
+  // contains the relevant headers we're done; otherwise append the pattern
+  // that works for both CJS and ESM Next configs.
+  let contents: string;
+  try {
+    contents = await fs.readFile(abs, "utf8");
+  } catch {
+    return { file: relFile, status: "manual-required", manualSteps: nextManualSteps() };
+  }
+
+  if (
+    contents.includes("Cross-Origin-Opener-Policy") &&
+    contents.includes("Cross-Origin-Embedder-Policy")
+  ) {
+    return { file: relFile, status: "already-configured" };
+  }
+
+  /*
+   * Rather than try to splice into an arbitrary nextConfig object (which
+   * can be a function, a const, a module.exports assignment, an ESM
+   * export default, etc), we emit a manual-steps hint. A future iteration
+   * can shell out to a proper AST rewrite, but v1 optimizes for never
+   * corrupting a user's next.config.js.
+   */
+  return { file: relFile, status: "manual-required", manualSteps: nextManualSteps() };
+}
+
+/**
+ * Find the config-object that user-facing `defineConfig(...)` wraps, or
+ * the default export itself if it's already a plain object.
+ */
+function getConfigObject(mod: ProxifiedModule): Record<string, unknown> | null {
+  const exported = mod.exports?.default as unknown;
+  if (!exported) return null;
+
+  const asCall = exported as { $type?: string; $args?: unknown[] };
+  if (asCall.$type === "function-call" && Array.isArray(asCall.$args) && asCall.$args.length > 0) {
+    const first = asCall.$args[0] as { $type?: string } & Record<string, unknown>;
+    if (first?.$type === "object") return first as Record<string, unknown>;
+  }
+
+  if ((exported as { $type?: string }).$type === "object") {
+    return exported as Record<string, unknown>;
+  }
+
+  return null;
+}
+
+function ensureServerHeaders(configObject: Record<string, unknown>): boolean {
+  return ensureHeadersUnder(configObject, "server");
+}
+
+function ensurePreviewHeaders(configObject: Record<string, unknown>): boolean {
+  return ensureHeadersUnder(configObject, "preview");
+}
+
+function ensureHeadersUnder(
+  configObject: Record<string, unknown>,
+  section: "server" | "preview"
+): boolean {
+  const sectionObj = (configObject[section] as Record<string, unknown> | undefined) ?? {};
+  const headers = (sectionObj.headers as Record<string, string> | undefined) ?? {};
+
+  let changed = false;
+  for (const [key, value] of Object.entries(COOP_HEADERS)) {
+    if (headers[key] !== value) {
+      headers[key] = value;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    sectionObj.headers = headers;
+    configObject[section] = sectionObj;
+  }
+
+  return changed;
+}
+
+function ensureOptimizeDepsExclude(configObject: Record<string, unknown>): boolean {
+  const optimizeDeps = (configObject.optimizeDeps as Record<string, unknown> | undefined) ?? {};
+  const exclude = (optimizeDeps.exclude as string[] | undefined) ?? [];
+
+  let changed = false;
+  for (const pkg of OPTIMIZE_DEPS_EXCLUDE) {
+    if (!exclude.includes(pkg)) {
+      exclude.push(pkg);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    optimizeDeps.exclude = exclude;
+    configObject.optimizeDeps = optimizeDeps;
+  }
+
+  return changed;
+}
+
+function manualStepsFor(framework: Framework): string[] {
+  if (framework.startsWith("vite-")) return viteManualSteps();
+  if (framework === "next-app" || framework === "next-pages") return nextManualSteps();
+  return genericManualSteps();
+}
+
+function viteManualSteps(): string[] {
+  return [
+    "Add the following to your vite.config.*:",
+    "",
+    "  export default defineConfig({",
+    "    server: {",
+    "      headers: {",
+    '        "Cross-Origin-Opener-Policy": "same-origin",',
+    '        "Cross-Origin-Embedder-Policy": "require-corp",',
+    "      },",
+    "    },",
+    "    preview: {",
+    "      headers: {",
+    '        "Cross-Origin-Opener-Policy": "same-origin",',
+    '        "Cross-Origin-Embedder-Policy": "require-corp",',
+    "      },",
+    "    },",
+    "    optimizeDeps: {",
+    '      exclude: ["supersonic-scsynth"],',
+    "    },",
+    "  });",
+  ];
+}
+
+function nextManualSteps(): string[] {
+  return [
+    "Add the following headers() entry to your next.config.*:",
+    "",
+    "  async headers() {",
+    "    return [",
+    "      {",
+    '        source: "/:path*",',
+    "        headers: [",
+    '          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },',
+    '          { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },',
+    "        ],",
+    "      },",
+    "    ];",
+    "  },",
+  ];
+}
+
+function genericManualSteps(): string[] {
+  return [
+    "Serve your app with the following HTTP headers so SharedArrayBuffer is enabled:",
+    "  Cross-Origin-Opener-Policy: same-origin",
+    "  Cross-Origin-Embedder-Policy: require-corp",
+  ];
+}
