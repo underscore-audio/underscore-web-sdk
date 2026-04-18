@@ -105,9 +105,17 @@ export async function patchViteConfig(abs: string, relFile: string): Promise<Pat
   }
 
   const patchedHeaders = ensureServerHeaders(configObject);
+  /*
+   * Vite's preview server ignores server.headers -- it requires a
+   * separate preview.headers block. Without this, users who run
+   * `vite preview` (the common "try the prod build locally" step)
+   * will see a SharedArrayBuffer error with no obvious link back to
+   * the wizard. Setting both keeps dev and preview parity.
+   */
+  const patchedPreviewHeaders = ensurePreviewHeaders(configObject);
   const patchedOptimize = ensureOptimizeDepsExclude(configObject);
 
-  if (!patchedHeaders && !patchedOptimize) {
+  if (!patchedHeaders && !patchedPreviewHeaders && !patchedOptimize) {
     return { file: relFile, status: "already-configured" };
   }
 
@@ -177,8 +185,19 @@ function getConfigObject(mod: ProxifiedModule): Record<string, unknown> | null {
 }
 
 function ensureServerHeaders(configObject: Record<string, unknown>): boolean {
-  const server = (configObject.server as Record<string, unknown> | undefined) ?? {};
-  const headers = (server.headers as Record<string, string> | undefined) ?? {};
+  return ensureHeadersUnder(configObject, "server");
+}
+
+function ensurePreviewHeaders(configObject: Record<string, unknown>): boolean {
+  return ensureHeadersUnder(configObject, "preview");
+}
+
+function ensureHeadersUnder(
+  configObject: Record<string, unknown>,
+  section: "server" | "preview"
+): boolean {
+  const sectionObj = (configObject[section] as Record<string, unknown> | undefined) ?? {};
+  const headers = (sectionObj.headers as Record<string, string> | undefined) ?? {};
 
   let changed = false;
   for (const [key, value] of Object.entries(COOP_HEADERS)) {
@@ -189,8 +208,8 @@ function ensureServerHeaders(configObject: Record<string, unknown>): boolean {
   }
 
   if (changed) {
-    server.headers = headers;
-    configObject.server = server;
+    sectionObj.headers = headers;
+    configObject[section] = sectionObj;
   }
 
   return changed;
@@ -228,6 +247,12 @@ function viteManualSteps(): string[] {
     "",
     "  export default defineConfig({",
     "    server: {",
+    "      headers: {",
+    '        "Cross-Origin-Opener-Policy": "same-origin",',
+    '        "Cross-Origin-Embedder-Policy": "require-corp",',
+    "      },",
+    "    },",
+    "    preview: {",
     "      headers: {",
     '        "Cross-Origin-Opener-Policy": "same-origin",',
     '        "Cross-Origin-Embedder-Policy": "require-corp",',

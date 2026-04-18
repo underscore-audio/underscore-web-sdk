@@ -62,12 +62,18 @@ describe("patchViteConfig", () => {
     expect(after).toContain("Cross-Origin-Opener-Policy");
     expect(after).toContain("Cross-Origin-Embedder-Policy");
     expect(after).toContain("supersonic-scsynth");
+    /*
+     * Both server and preview blocks need the COOP headers -- preview
+     * has its own headers config that does not inherit from server.
+     */
+    expect(after).toContain("server:");
+    expect(after).toContain("preview:");
   });
 
-  it("is a no-op when headers and optimizeDeps are already set", async () => {
+  it("is a no-op when server, preview, and optimizeDeps are all already set", async () => {
     const abs = await writeFile(
       "vite.config.ts",
-      `import { defineConfig } from "vite";\nexport default defineConfig({\n  server: {\n    headers: {\n      "Cross-Origin-Opener-Policy": "same-origin",\n      "Cross-Origin-Embedder-Policy": "require-corp"\n    }\n  },\n  optimizeDeps: { exclude: ["supersonic-scsynth"] }\n});\n`
+      `import { defineConfig } from "vite";\nexport default defineConfig({\n  server: {\n    headers: {\n      "Cross-Origin-Opener-Policy": "same-origin",\n      "Cross-Origin-Embedder-Policy": "require-corp"\n    }\n  },\n  preview: {\n    headers: {\n      "Cross-Origin-Opener-Policy": "same-origin",\n      "Cross-Origin-Embedder-Policy": "require-corp"\n    }\n  },\n  optimizeDeps: { exclude: ["supersonic-scsynth"] }\n});\n`
     );
     const before = await fs.readFile(abs, "utf8");
 
@@ -76,6 +82,20 @@ describe("patchViteConfig", () => {
 
     const after = await fs.readFile(abs, "utf8");
     expect(after).toBe(before);
+  });
+
+  it("adds preview.headers even when server.headers is already set", async () => {
+    const abs = await writeFile(
+      "vite.config.ts",
+      `import { defineConfig } from "vite";\nexport default defineConfig({\n  server: {\n    headers: {\n      "Cross-Origin-Opener-Policy": "same-origin",\n      "Cross-Origin-Embedder-Policy": "require-corp"\n    }\n  }\n});\n`
+    );
+
+    const result = await patchViteConfig(abs, "vite.config.ts");
+    expect(result.status).toBe("patched");
+
+    const after = await fs.readFile(abs, "utf8");
+    expect(after).toContain("preview:");
+    expect(after.match(/Cross-Origin-Opener-Policy/g)?.length).toBe(2);
   });
 
   it("preserves other config fields when adding headers", async () => {
