@@ -1,10 +1,10 @@
-# @underscore/wizard
+# @underscore-audio/wizard
 
 Install and configure [Underscore](https://underscore.audio) in an existing web
 project in under five minutes.
 
 ```bash
-npx @underscore/wizard@latest
+npx @underscore-audio/wizard@latest
 ```
 
 The wizard:
@@ -12,7 +12,7 @@ The wizard:
 1. Signs you in (or creates an account) through a browser device-code flow.
 2. Provisions a publishable API key for your new integration.
 3. Detects your framework (Vite, Next.js, or vanilla HTML) and package manager.
-4. Installs `@underscore/sdk` and `supersonic-scsynth` and copies the WASM assets
+4. Installs `@underscore-audio/sdk` and `supersonic-scsynth` and copies the WASM assets
    into your public directory.
 5. Patches your build config with the required COOP/COEP headers.
 6. Writes your API key to `.env.local` (or `.env`) without touching existing
@@ -35,9 +35,9 @@ npm test
 npm run build
 ```
 
-The wizard ships as a standalone package alongside `@underscore/sdk`. The
+The wizard ships as a standalone package alongside `@underscore-audio/sdk`. The
 published `bin` is `underscore-wizard`, invoked via
-`npx @underscore/wizard@latest`.
+`npx @underscore-audio/wizard@latest`.
 
 ## Exit codes
 

@@ -1,8 +1,8 @@
-# @underscore/sdk
+# @underscore-audio/sdk
 
 TypeScript SDK for integrating [Underscore](https://underscore.audio) AI-generated synthesizers into web applications.
 
-[![npm version](https://img.shields.io/npm/v/@underscore/sdk)](https://www.npmjs.com/package/@underscore/sdk)
+[![npm version](https://img.shields.io/npm/v/@underscore-audio/sdk)](https://www.npmjs.com/package/@underscore-audio/sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
 ## Features
@@ -22,13 +22,13 @@ COOP/COEP headers, writes your publishable key to `.env.local`, and
 scaffolds a small demo component:
 
 ```bash
-npx @underscore/wizard@latest
+npx @underscore-audio/wizard@latest
 ```
 
 If you'd rather wire things up by hand:
 
 ```bash
-npm install @underscore/sdk supersonic-scsynth
+npm install @underscore-audio/sdk supersonic-scsynth
 ```
 
 <details>
@@ -41,7 +41,7 @@ The SDK lives in its own standalone repo: `underscore-audio/underscore-web-sdk`.
 npm install github:underscore-audio/underscore-web-sdk supersonic-scsynth
 
 # Or reference a local clone in your package.json
-# "@underscore/sdk": "file:../path/to/underscore-web-sdk"
+# "@underscore-audio/sdk": "file:../path/to/underscore-web-sdk"
 ```
 
 </details>
@@ -49,7 +49,7 @@ npm install github:underscore-audio/underscore-web-sdk supersonic-scsynth
 ## Quick Start
 
 ```typescript
-import { Underscore } from "@underscore/sdk";
+import { Underscore } from "@underscore-audio/sdk";
 
 const client = new Underscore({
   apiKey: "us_pub_your_publishable_key",
@@ -107,7 +107,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    exclude: ["@underscore/sdk", "supersonic-scsynth"],
+    exclude: ["@underscore-audio/sdk", "supersonic-scsynth"],
   },
 });
 ```
@@ -202,7 +202,7 @@ primitives so each half can run in its correct environment.
 On your server (Node, holds the secret key):
 
 ```typescript
-import { Underscore } from "@underscore/sdk";
+import { Underscore } from "@underscore-audio/sdk";
 
 // wasmBaseUrl is only consumed by init()/loadSynth(), so it can be
 // omitted when the SDK is used purely for its HTTP client methods.
@@ -258,7 +258,7 @@ for await (const event of client.generate("cmp_...", "warm analog pad")) {
 ### Error Handling
 
 ```typescript
-import { ApiError, AudioError, SynthError, ValidationError } from "@underscore/sdk";
+import { ApiError, AudioError, SynthError, ValidationError } from "@underscore-audio/sdk";
 
 try {
   await client.loadSynth("invalid");
@@ -345,7 +345,7 @@ next to `underscore` on disk.
 
 ### Publishing the wizard
 
-CI auto-publishes `@underscore/wizard` to npm when a tag matching
+CI auto-publishes `@underscore-audio/wizard` to npm when a tag matching
 `wizard-vX.Y.Z` is pushed. One-time setup:
 
 1. Add `NPM_TOKEN` to this repo's GitHub Actions secrets (automation
@@ -365,8 +365,8 @@ The `publish-wizard` job in
 
 Tracked in Linear under the "Install with AI launch" parent. Summary:
 
-- Production blockers (P0): publish `@underscore/wizard@0.1.0` to npm
-  (the README above advertises `npx @underscore/wizard@latest` which
+- Production blockers (P0): publish `@underscore-audio/wizard@0.1.0` to npm
+  (the README above advertises `npx @underscore-audio/wizard@latest` which
   404s until this ships).
 - Should-do before announcement (P1): dedicated "Install with AI"
   docs page with screenshots, wizard install telemetry, L4 audio

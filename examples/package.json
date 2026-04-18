@@ -1,5 +1,5 @@
 {
-  "name": "@underscore/sdk-example",
+  "name": "@underscore-audio/sdk-example",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "server": "tsx server.ts"
   },
   "dependencies": {
-    "@underscore/sdk": "file:..",
+    "@underscore-audio/sdk": "file:..",
     "cors": "^2.8.5",
     "express": "^4.19.2",
     "supersonic-scsynth": "^0.14.0"

@@ -128,7 +128,7 @@ jobs:
       - name: Check if version changed
         id: check
         run: |
-          PUBLISHED_VERSION=$(npm view @underscore/wizard version 2>/dev/null || echo "0.0.0")
+          PUBLISHED_VERSION=$(npm view @underscore-audio/wizard version 2>/dev/null || echo "0.0.0")
           CURRENT_VERSION=$(node -p "require('./package.json').version")
           if [ "$PUBLISHED_VERSION" != "$CURRENT_VERSION" ]; then
             echo "publish=true" >> $GITHUB_OUTPUT
@@ -142,7 +142,12 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    needs: [test, e2e]
+    # e2e is intentionally excluded: the current e2e job invokes a nonexistent
+    # `test:e2e` script and has never passed on main. The real end-to-end
+    # coverage lives in the main underscore repo (web/tests/e2e/wizard-install.spec.ts)
+    # where we can spin up the full API stack. Add a proper e2e here when we
+    # have a self-contained live-API fixture worth running on every publish.
+    needs: [test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
@@ -163,7 +168,7 @@ jobs:
       - name: Check if version changed
         id: check
         run: |
-          PUBLISHED_VERSION=$(npm view @underscore/sdk version 2>/dev/null || echo "0.0.0")
+          PUBLISHED_VERSION=$(npm view @underscore-audio/sdk version 2>/dev/null || echo "0.0.0")
           CURRENT_VERSION=$(node -p "require('./package.json').version")
           if [ "$PUBLISHED_VERSION" != "$CURRENT_VERSION" ]; then
             echo "publish=true" >> $GITHUB_OUTPUT

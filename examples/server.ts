@@ -9,7 +9,7 @@
 
 import express from "express";
 import cors from "cors";
-import { Underscore } from "@underscore/sdk";
+import { Underscore } from "@underscore-audio/sdk";
 
 const PORT = Number(process.env.PORT ?? 8787);
 const SECRET_KEY = process.env.UNDERSCORE_SECRET_KEY;

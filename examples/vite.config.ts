@@ -1,17 +1,17 @@
-import { defineConfig } from 'vite';
+import { defineConfig } from "vite";
 
 export default defineConfig({
   server: {
     port: 5173,
     headers: {
-      'Cross-Origin-Opener-Policy': 'same-origin',
-      'Cross-Origin-Embedder-Policy': 'require-corp',
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp",
     },
   },
   // Required for WASM files to be served with correct MIME type
-  assetsInclude: ['**/*.wasm'],
+  assetsInclude: ["**/*.wasm"],
   optimizeDeps: {
-    exclude: ['@underscore/sdk', 'supersonic-scsynth'],
+    exclude: ["@underscore-audio/sdk", "supersonic-scsynth"],
   },
   build: {
     // Ensure workers are bundled correctly
@@ -24,6 +24,6 @@ export default defineConfig({
   },
   // Handle worker files properly
   worker: {
-    format: 'es',
+    format: "es",
   },
 });

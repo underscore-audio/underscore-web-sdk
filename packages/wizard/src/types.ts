@@ -60,7 +60,7 @@ export interface WizardOptions {
    * Map of package name to local tarball path. When provided, install.ts
    * passes the tarball path to the detected package manager instead of the
    * registry name, keeping e2e runs off the public registry. Keys should
-   * match the registered dep names (e.g. "@underscore/sdk",
+   * match the registered dep names (e.g. "@underscore-audio/sdk",
    * "supersonic-scsynth"); unmapped packages fall back to registry install.
    */
   tarballOverrides?: Record<string, string>;

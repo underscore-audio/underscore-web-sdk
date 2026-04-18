@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CLI entry point for `npx @underscore/wizard`.
+ * CLI entry point for `npx @underscore-audio/wizard`.
  *
  * This file does only two things: parse a minimal set of flags and call
  * `runWizard`. All logic, prompts, and side effects live in the modules under
@@ -90,10 +90,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
 export function helpText(): string {
   return `
-${pc.bold("@underscore/wizard")} - install Underscore in your web app
+${pc.bold("@underscore-audio/wizard")} - install Underscore in your web app
 
 ${pc.bold("Usage:")}
-  npx @underscore/wizard@latest [options]
+  npx @underscore-audio/wizard@latest [options]
 
 ${pc.bold("Options:")}
   -y, --yes, --non-interactive   Accept defaults without prompts (CI use)
