@@ -23,7 +23,15 @@ export interface InstallDependencies {
   run?: (cmd: string, args: string[], opts: { cwd: string }) => Promise<void>;
 }
 
-const SDK_PACKAGES = ["@underscore/sdk", "supersonic-scsynth"] as const;
+/*
+ * We pin supersonic-scsynth here to the same range the SDK declares as a
+ * peer dependency (^0.14.0). Without a version specifier npm resolves to
+ * latest, which at the time of writing is 0.66 -- a major that relocated
+ * the WASM assets away from `dist/wasm/`. copyWasmAssets would then fail
+ * silently for every new user. Tests that use tarballOverrides replace
+ * the spec wholesale, so the pin only ever affects real installs.
+ */
+const SDK_PACKAGES = ["@underscore/sdk", "supersonic-scsynth@^0.14.0"] as const;
 
 /**
  * Package-manager specific install commands. Kept as a data table so the
@@ -40,7 +48,18 @@ function installCommand(
   pm: PackageManager,
   tarballOverrides?: Record<string, string>
 ): { cmd: string; args: string[] } {
-  const resolved = SDK_PACKAGES.map((name) => tarballOverrides?.[name] ?? name);
+  /*
+   * SDK_PACKAGES entries may include version specifiers (e.g.
+   * "supersonic-scsynth@^0.14.0") so we strip the @version tail when
+   * looking up the overrides map. Override keys are bare package names
+   * ("supersonic-scsynth"), which matches how a caller would write them.
+   */
+  const resolved = SDK_PACKAGES.map((spec) => {
+    const bareName = spec.startsWith("@")
+      ? "@" + spec.slice(1).split("@")[0]
+      : spec.split("@")[0];
+    return tarballOverrides?.[bareName] ?? spec;
+  });
   switch (pm) {
     case "pnpm":
       return { cmd: "pnpm", args: ["add", ...resolved] };

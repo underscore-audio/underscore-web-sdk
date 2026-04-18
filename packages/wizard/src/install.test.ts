@@ -37,10 +37,10 @@ function options(overrides: Partial<WizardOptions> = {}): WizardOptions {
 
 describe("installDependencies", () => {
   it.each([
-    ["npm", "npm", ["install", "@underscore/sdk", "supersonic-scsynth"]],
-    ["pnpm", "pnpm", ["add", "@underscore/sdk", "supersonic-scsynth"]],
-    ["yarn", "yarn", ["add", "@underscore/sdk", "supersonic-scsynth"]],
-    ["bun", "bun", ["add", "@underscore/sdk", "supersonic-scsynth"]],
+    ["npm", "npm", ["install", "@underscore/sdk", "supersonic-scsynth@^0.14.0"]],
+    ["pnpm", "pnpm", ["add", "@underscore/sdk", "supersonic-scsynth@^0.14.0"]],
+    ["yarn", "yarn", ["add", "@underscore/sdk", "supersonic-scsynth@^0.14.0"]],
+    ["bun", "bun", ["add", "@underscore/sdk", "supersonic-scsynth@^0.14.0"]],
   ] as const)("runs %s with the right args", async (pm, expectedCmd, expectedArgs) => {
     const run = vi.fn(async () => {});
     await installDependencies(project({ packageManager: pm }), options(), { run });
@@ -92,7 +92,25 @@ describe("installDependencies", () => {
     );
     expect(run).toHaveBeenCalledWith(
       "pnpm",
-      ["add", "/tmp/tarballs/underscore-sdk-0.1.0.tgz", "supersonic-scsynth"],
+      ["add", "/tmp/tarballs/underscore-sdk-0.1.0.tgz", "supersonic-scsynth@^0.14.0"],
+      { cwd: "/tmp/app" }
+    );
+  });
+
+  it("matches tarballOverrides keys by bare package name, ignoring version specifier", async () => {
+    const run = vi.fn(async () => {});
+    await installDependencies(
+      project({ packageManager: "npm" }),
+      options({
+        tarballOverrides: {
+          "supersonic-scsynth": "/tmp/tarballs/supersonic-scsynth-0.14.0.tgz",
+        },
+      }),
+      { run }
+    );
+    expect(run).toHaveBeenCalledWith(
+      "npm",
+      ["install", "@underscore/sdk", "/tmp/tarballs/supersonic-scsynth-0.14.0.tgz"],
       { cwd: "/tmp/app" }
     );
   });
