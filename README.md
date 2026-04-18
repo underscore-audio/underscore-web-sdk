@@ -15,6 +15,18 @@ TypeScript SDK for integrating [Underscore](https://underscore.audio) AI-generat
 
 ## Installation
 
+The fastest path is the install wizard. Run it inside an existing web
+project (Vite, Next.js, or vanilla HTML). It signs you in, installs this
+SDK plus `supersonic-scsynth`, patches your build config with the required
+COOP/COEP headers, writes your publishable key to `.env.local`, and
+scaffolds a small demo component:
+
+```bash
+npx @underscore/wizard@latest
+```
+
+If you'd rather wire things up by hand:
+
 ```bash
 npm install @underscore/sdk supersonic-scsynth
 ```
