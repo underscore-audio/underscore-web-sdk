@@ -7,8 +7,18 @@
  * wizard-tests task.
  */
 
-import { describe, it, expect } from "vitest";
-import { parseArgs, argsToOptions, helpText, CliArgError } from "./cli.js";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { afterEach, beforeEach, describe, it, expect } from "vitest";
+import {
+  parseArgs,
+  argsToOptions,
+  helpText,
+  CliArgError,
+  resolveCliEntryPoint,
+} from "./cli.js";
 
 describe("parseArgs", () => {
   it("returns default parsed flags when argv is empty", () => {
@@ -99,5 +109,70 @@ describe("helpText", () => {
     expect(text).toContain("@underscore-audio/wizard");
     expect(text).toContain("--skip-install");
     expect(text).toContain("--non-interactive");
+  });
+});
+
+/**
+ * Regression guard for the silent-exit bug we shipped in 0.1.0. npm/npx
+ * invokes bin scripts via a symlink under `node_modules/.bin/`; the old
+ * entry-point check compared `process.argv[1]` directly to `import.meta.url`
+ * and never matched, so `main()` was never called. These tests exercise the
+ * exact failure mode by building a temp directory where the bin file is a
+ * symlink to the "module" file -- matching the layout that npm produces.
+ */
+describe("resolveCliEntryPoint", () => {
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(join(tmpdir(), "wizard-cli-entry-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("returns true when argv[1] is a symlink to the module file", () => {
+    const pkgDir = join(tmpRoot, "pkg", "dist");
+    const binDir = join(tmpRoot, ".bin");
+    mkdirSync(pkgDir, { recursive: true });
+    mkdirSync(binDir, { recursive: true });
+
+    const modulePath = join(pkgDir, "cli.js");
+    const binPath = join(binDir, "underscore-wizard");
+    writeFileSync(modulePath, "export {};\n");
+    symlinkSync(modulePath, binPath);
+
+    const moduleUrl = pathToFileURL(modulePath).href;
+    expect(resolveCliEntryPoint(binPath, moduleUrl)).toBe(true);
+  });
+
+  it("returns true when argv[1] is the module file itself", () => {
+    const modulePath = join(tmpRoot, "cli.js");
+    writeFileSync(modulePath, "export {};\n");
+    const moduleUrl = pathToFileURL(modulePath).href;
+    expect(resolveCliEntryPoint(modulePath, moduleUrl)).toBe(true);
+  });
+
+  it("returns false when argv[1] points to an unrelated file", () => {
+    const modulePath = join(tmpRoot, "cli.js");
+    const otherPath = join(tmpRoot, "other.js");
+    writeFileSync(modulePath, "export {};\n");
+    writeFileSync(otherPath, "export {};\n");
+    const moduleUrl = pathToFileURL(modulePath).href;
+    expect(resolveCliEntryPoint(otherPath, moduleUrl)).toBe(false);
+  });
+
+  it("returns false when argv[1] is undefined (module imported, not executed)", () => {
+    const modulePath = join(tmpRoot, "cli.js");
+    writeFileSync(modulePath, "export {};\n");
+    const moduleUrl = pathToFileURL(modulePath).href;
+    expect(resolveCliEntryPoint(undefined, moduleUrl)).toBe(false);
+  });
+
+  it("returns false (not throwing) when argv[1] points to a nonexistent path", () => {
+    const modulePath = join(tmpRoot, "cli.js");
+    writeFileSync(modulePath, "export {};\n");
+    const moduleUrl = pathToFileURL(modulePath).href;
+    expect(resolveCliEntryPoint(join(tmpRoot, "missing"), moduleUrl)).toBe(false);
   });
 });

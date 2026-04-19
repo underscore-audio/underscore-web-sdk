@@ -7,6 +7,8 @@
  * `./`, which lets us unit-test them without spawning subprocesses.
  */
 
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import pc from "picocolors";
 import { runWizard } from "./run.js";
 import type { WizardOptions } from "./types.js";
@@ -154,8 +156,32 @@ async function main(): Promise<void> {
   }
 }
 
-const isEntryPoint = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
-if (isEntryPoint) {
+/**
+ * Entry-point detection. The previous implementation compared
+ * `process.argv[1]` directly to `import.meta.url`, which silently fails when
+ * npm/npx invoke the bin via a symlink in `node_modules/.bin/` -- the symlink
+ * path never equals the resolved file URL, so `main()` was never called and
+ * the process exited 0 with no output.
+ *
+ * We now resolve both paths through `realpath` so a symlink invocation is
+ * treated as equivalent to a direct invocation. We still preserve the guard
+ * so unit tests can import this module without triggering `main()`.
+ */
+export function resolveCliEntryPoint(
+  invokedArg: string | undefined,
+  moduleUrl: string
+): boolean {
+  if (!invokedArg) return false;
+  try {
+    const invokedRealPath = realpathSync(invokedArg);
+    const moduleRealPath = realpathSync(fileURLToPath(moduleUrl));
+    return invokedRealPath === moduleRealPath;
+  } catch {
+    return false;
+  }
+}
+
+if (resolveCliEntryPoint(process.argv[1], import.meta.url)) {
   main().catch((error) => {
     console.error(pc.red(`Fatal: ${error instanceof Error ? error.message : String(error)}`));
     process.exit(1);
