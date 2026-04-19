@@ -35,7 +35,7 @@ vi.mock("./install.js", () => ({
   copyWasmAssets: (...args: unknown[]) => copyMock(...args),
 }));
 vi.mock("./patch.js", () => ({
-  patchConfig: (...args: unknown[]) => patchMock(...args),
+  patchConfigDetailed: (...args: unknown[]) => patchMock(...args),
 }));
 vi.mock("./env.js", () => ({
   writeEnv: (...args: unknown[]) => envMock(...args),
@@ -78,7 +78,7 @@ beforeEach(() => {
   authMock.mockResolvedValue({ publishableKey: "pk_123" });
   installMock.mockResolvedValue(undefined);
   copyMock.mockResolvedValue(["public/supersonic"]);
-  patchMock.mockResolvedValue(["vite.config.ts"]);
+  patchMock.mockResolvedValue([{ file: "vite.config.ts", status: "patched" }]);
   envMock.mockResolvedValue("/tmp/app/.env.local");
   scanMock.mockResolvedValue(["retro", "game"]);
   discoverMock.mockResolvedValue([
@@ -141,6 +141,26 @@ describe("runWizard", () => {
     const result = await runWizard(baseOptions);
     expect(result.compositions).toEqual([]);
     expect(envMock).toHaveBeenCalledTimes(1);
+  });
+
+  /*
+   * Regression: when patchConfigDetailed reports manual-required we
+   * used to silently drop the result, so users with a non-patchable
+   * config walked away thinking the wizard succeeded. The result
+   * should NOT contain that file in patchedFiles, so they can tell.
+   */
+  it("does not claim a manual-required file was patched", async () => {
+    patchMock.mockResolvedValueOnce([
+      {
+        file: "vite.config.ts",
+        status: "manual-required",
+        manualSteps: ["add COOP/COEP headers"],
+      },
+    ]);
+    const { runWizard } = await import("./run.js");
+    const result = await runWizard(baseOptions);
+    expect(result.patchedFiles).not.toContain("vite.config.ts");
+    expect(result.patchedFiles).toEqual([]);
   });
 
   it("propagates auth errors without writing any files", async () => {
