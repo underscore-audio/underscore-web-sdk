@@ -147,9 +147,13 @@ jobs:
             echo "publish=true" >> $GITHUB_OUTPUT
           fi
 
+      # --provenance is intentionally omitted: npm's sigstore attestation
+      # requires the source repository to be public, and this repo is still
+      # private. Trusted Publishing (OIDC auth, no NPM_TOKEN) still works
+      # without it. Re-add --provenance once the repo is made public.
       - name: Publish to npm
         if: steps.check.outputs.publish == 'true'
-        run: npm publish --access public --provenance
+        run: npm publish --access public
 
   publish:
     runs-on: ubuntu-latest
@@ -189,6 +193,10 @@ jobs:
             echo "publish=true" >> $GITHUB_OUTPUT
           fi
 
+      # --provenance is intentionally omitted: npm's sigstore attestation
+      # requires the source repository to be public, and this repo is still
+      # private. Trusted Publishing (OIDC auth, no NPM_TOKEN) still works
+      # without it. Re-add --provenance once the repo is made public.
       - name: Publish to npm
         if: steps.check.outputs.publish == 'true'
-        run: npm publish --access public --provenance
+        run: npm publish --access public
