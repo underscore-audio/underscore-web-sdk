@@ -33,43 +33,14 @@ jobs:
       - name: Build
         run: npm run build
 
-  e2e:
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build SDK
-        run: npm run build
-
-      - name: Install example dependencies
-        run: cd examples && npm ci
-
-      - name: Copy assets
-        run: cd examples && npm run copy-assets
-
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-
-      - name: Run E2E tests
-        run: npm run test:e2e
-
-      - name: Upload test results
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: playwright-report
-          path: playwright-report/
-          retention-days: 30
+  # The previous `e2e` job here invoked a `test:e2e` script that never
+  # existed and never passed on main. Real end-to-end coverage for the
+  # SDK lives in the main underscore repo
+  # (web/tests/e2e/wizard-install.spec.ts), where we can spin up the full
+  # API stack with LocalStack/Redis. If we ever want a self-contained
+  # live-API fixture here worth running on every push, we can re-add a
+  # proper job -- until then, a perpetually-red check only hides real
+  # failures and forces `--admin` merges.
 
   wizard:
     runs-on: ubuntu-latest
@@ -157,11 +128,6 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    # e2e is intentionally excluded: the current e2e job invokes a nonexistent
-    # `test:e2e` script and has never passed on main. The real end-to-end
-    # coverage lives in the main underscore repo (web/tests/e2e/wizard-install.spec.ts)
-    # where we can spin up the full API stack. Add a proper e2e here when we
-    # have a self-contained live-API fixture worth running on every publish.
     needs: [test]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
