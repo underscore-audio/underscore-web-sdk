@@ -174,7 +174,28 @@ describe("patchConfigDetailed", () => {
     expect(result.status).toBe("patched");
   });
 
-  it("returns manual-required when there's no config file", async () => {
+  /*
+   * Regression: create-vite's vanilla-ts template ships without a
+   * vite.config.* file. Before we special-cased this, patchConfigDetailed
+   * returned manual-required and run.ts silently dropped the warning,
+   * so the SDK shipped without COOP/COEP headers and failed at runtime.
+   */
+  it("creates a vite.config.ts when a vite project has no config file", async () => {
+    const [result] = await patchConfigDetailed(
+      project({ framework: "vite-vanilla", configFile: null })
+    );
+    expect(result.status).toBe("patched");
+    expect(result.file).toBe("vite.config.ts");
+
+    const written = await fs.readFile(join(root, "vite.config.ts"), "utf8");
+    expect(written).toContain("Cross-Origin-Opener-Policy");
+    expect(written).toContain("Cross-Origin-Embedder-Policy");
+    expect(written).toContain("preview");
+    expect(written).toContain("supersonic-scsynth");
+    expect(written).toContain('import { defineConfig } from "vite"');
+  });
+
+  it("returns manual-required when a non-vite project has no config file", async () => {
     const [result] = await patchConfigDetailed(
       project({ framework: "vanilla-html", configFile: null })
     );
@@ -185,5 +206,15 @@ describe("patchConfigDetailed", () => {
   it("returns manual-required for unknown framework", async () => {
     const [result] = await patchConfigDetailed(project({ framework: "unknown", configFile: null }));
     expect(result.status).toBe("manual-required");
+  });
+
+  it("does not clobber an existing vite.config.ts on the create path", async () => {
+    await writeFile("vite.config.ts", "// user's hand-written config\n");
+    const [result] = await patchConfigDetailed(
+      project({ framework: "vite-vanilla", configFile: null })
+    );
+    expect(result.status).toBe("manual-required");
+    const onDisk = await fs.readFile(join(root, "vite.config.ts"), "utf8");
+    expect(onDisk).toBe("// user's hand-written config\n");
   });
 });

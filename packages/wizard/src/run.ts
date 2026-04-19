@@ -21,7 +21,7 @@ import pc from "picocolors";
 import { detectProject } from "./detect.js";
 import { authenticate } from "./auth.js";
 import { installDependencies, copyWasmAssets } from "./install.js";
-import { patchConfig } from "./patch.js";
+import { patchConfigDetailed } from "./patch.js";
 import { writeEnv } from "./env.js";
 import { scanProjectForTags } from "./scan.js";
 import { pickStarterCompositions } from "./discover.js";
@@ -47,8 +47,26 @@ export async function runWizard(options: WizardOptions): Promise<WizardResult> {
     writtenFiles.push(...copied);
   }
 
-  const patched = await patchConfig(project);
-  patchedFiles.push(...patched);
+  /*
+   * patchConfigDetailed also reports any files that need manual edits
+   * (e.g. a custom Vite config magicast can't safely rewrite, or a
+   * non-vanilla-html project with no recognized framework). We surface
+   * those immediately so users don't walk away thinking the wizard
+   * succeeded only to hit a cryptic SharedArrayBuffer error at runtime.
+   */
+  const patchResults = await patchConfigDetailed(project);
+  for (const result of patchResults) {
+    if (result.status === "patched") {
+      patchedFiles.push(result.file);
+    } else if (result.status === "manual-required") {
+      p.log.warn(
+        [
+          `Config change required in ${pc.cyan(result.file)} -- the wizard couldn't patch it safely.`,
+          ...(result.manualSteps ?? []),
+        ].join("\n")
+      );
+    }
+  }
 
   const envPath = await writeEnv(project, keys);
   writtenFiles.push(envPath);
