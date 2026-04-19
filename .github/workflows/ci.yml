@@ -117,17 +117,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # npm Trusted Publishing requires npm >= 11.5.1. We pin Node 24 (current
+      # LTS "Krypton") because it bundles npm >= 11.6.1 out of the box. The
+      # previous approach (Node 22 + `npm install -g npm@latest`) is
+      # flaky on GitHub hosted runners: the self-upgrade leaves arborist's
+      # dependency tree broken (missing `promise-retry`) and the next npm
+      # command crashes with MODULE_NOT_FOUND. Staying on a Node version
+      # that ships a compatible npm sidesteps the self-upgrade entirely.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: "npm"
           cache-dependency-path: packages/wizard/package-lock.json
           registry-url: "https://registry.npmjs.org"
-
-      # npm Trusted Publishing requires npm >= 11.5.1; Node 22 ships with npm 10.x.
-      - name: Upgrade npm
-        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: npm ci
@@ -163,15 +166,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # See publish-wizard for why we pin Node 24 instead of upgrading npm.
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
           cache: "npm"
           registry-url: "https://registry.npmjs.org"
-
-      - name: Upgrade npm
-        run: npm install -g npm@latest
 
       - name: Install dependencies
         run: npm ci
