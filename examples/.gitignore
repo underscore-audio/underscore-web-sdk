@@ -1,4 +1,5 @@
 node_modules/
 dist/
 public/supersonic/
+backend-proxy/public/supersonic/
 .env

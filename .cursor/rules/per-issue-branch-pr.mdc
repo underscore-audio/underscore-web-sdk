@@ -1,0 +1,82 @@
+---
+description: Per-issue branch and PR workflow with Conventional Commits
+alwaysApply: true
+---
+
+# One issue, one branch, one PR
+
+When you start work on a Linear issue, branch from `main` and open a PR
+for that issue alone. Do not pile multiple issues onto one branch.
+
+## Steps
+
+1. Pick the branch name yourself, do not use Linear's `po/...`
+   default. Format: `<type>/und-XX-short-slug` where `<type>` is the
+   conventional-commit type that the work resolves to (`feat`, `fix`,
+   `docs`, `chore`, `refactor`, `test`, `perf`, `ci`). The slug is
+   3-6 lowercase kebab-case words describing the change.
+2. `git checkout main && git pull && git checkout -b <branch>`.
+3. Commit only that issue's changes. Test, lint, typecheck before pushing.
+4. Open the PR with `Closes UND-XX` in the body so Linear flips state on
+   merge. PR title = the conventional-commit subject (see below).
+5. Merge after CI green, then delete the branch.
+
+Branch examples:
+
+- `fix/und-71-wizard-vite-config`
+- `feat/und-90-control-param-helper`
+- `ci/und-88-trusted-publishing`
+- `chore/und-95-rename-npm-scope`
+
+## Conventional Commits
+
+Follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/).
+Format: `<type>(<scope>): <description> (UND-XX)`.
+
+Repo-observed types: `feat`, `fix`, `docs`, `chore`, `refactor`,
+`test`, `perf`, `ci`. Scopes are area names: `sdk`, `wizard`,
+`examples`, `ci`. Description starts lowercase, imperative, no
+trailing period, ~72 chars. **The branch type and the commit type
+should match** (`fix/...` branch → `fix(scope): ...` commit), so the
+changelog and the branch tell the same story.
+
+Breaking changes: append `!` after the scope (e.g. `feat(sdk)!: ...`)
+and add a `BREAKING CHANGE:` footer explaining the migration. The SDK
+is published to npm — a `feat(sdk)!:` cuts a major version, `feat(sdk):`
+cuts a minor.
+
+Commit examples (from this repo):
+
+- `fix(wizard): create vite.config.ts when none exists, surface manual-required warnings`
+- `fix(ci): drop --provenance until source repo is public`
+- `refactor: rename npm scope to @underscore-audio`
+
+## Splits and dependencies
+
+- Public-API SDK changes get their own PR even within one issue, so the
+  changelog and semver bump map cleanly to one merge.
+- Test-only changes ride with the code change they cover. Don't split
+  mechanically.
+- If issue B depends on issue A's branch, branch B off A and rebase
+  after A merges. Don't wait sequentially when the code can stack.
+
+## When NOT to use a branch
+
+- Pure docs typo fixes that the user explicitly asks to push directly.
+- Emergency revert (use `git revert` on `main`; the auto-generated
+  `revert: ...` message satisfies the spec).
+
+## Counter-examples
+
+```
+# BAD: one branch with two SDK breaking changes piled together.
+#      Reviewer cannot reason about either in isolation, and the
+#      single major bump erases the changelog signal.
+
+# BAD: "updates" or "fix stuff" or "WIP" as a commit subject.
+#      No type, no scope, no issue ref. Skipped by changelog tooling.
+
+# GOOD: one branch per issue, conventional-commit subject like
+#       `feat(sdk): add controlParam(name, value) helper (UND-71)`
+#       and a single "Closes UND-71" footer in the PR body.
+```
