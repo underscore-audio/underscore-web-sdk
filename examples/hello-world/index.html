@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Underscore SDK — Hello World</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      max-width: 480px;
+      margin: 80px auto;
+      padding: 24px;
+      background: #111;
+      color: #e0e0e0;
+    }
+    h1 { font-size: 1.4rem; color: #86efac; margin: 0 0 6px; }
+    .sub { color: #666; margin: 0 0 40px; font-size: 0.9rem; }
+    button {
+      padding: 12px 28px;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      background: #86efac;
+      color: #111;
+      transition: opacity 0.15s;
+    }
+    button:disabled { opacity: 0.35; cursor: not-allowed; }
+    #msg { margin-top: 18px; font-size: 0.85rem; color: #888; min-height: 1.2em; }
+    #msg.err { color: #f87171; }
+  </style>
+</head>
+<body>
+  <h1>Underscore SDK</h1>
+  <p class="sub">Generative audio for the web — hello world</p>
+  <button id="btn">Play synth</button>
+  <div id="msg"></div>
+
+  <script type="module">
+    /*
+     * Curated demo synth. Fill these in before running:
+     *   DEMO_KEY  — a publishable key (us_pub_...) from underscore.audio
+     *   DEMO_COMP — the composition ID of the public synth to play
+     *
+     * The SDK, WASM, and audio workers all load from CDN/underscore.audio;
+     * no npm install or build step is required to run this file.
+     */
+    const DEMO_KEY  = "us_pub_REPLACE_ME";
+    const DEMO_COMP = "cmp_REPLACE_ME";
+
+    import { Underscore } from "https://esm.sh/@underscore-audio/sdk@0.1.0";
+
+    const client = new Underscore({
+      apiKey: DEMO_KEY,
+      /*
+       * WASM and audio workers are served from underscore.audio with the
+       * required COOP/COEP/CORP headers. Point wasmBaseUrl here so this
+       * page works without shipping or hosting the WASM yourself.
+       */
+      wasmBaseUrl: "https://underscore.audio/supersonic/",
+    });
+
+    const btn = document.getElementById("btn");
+    const msg = document.getElementById("msg");
+
+    function status(text, error = false) {
+      msg.textContent = text;
+      msg.className = error ? "err" : "";
+    }
+
+    let synth = null;
+
+    btn.addEventListener("click", async () => {
+      if (synth?.isPlaying()) {
+        synth.stop();
+        btn.textContent = "Play synth";
+        status("");
+        return;
+      }
+
+      btn.disabled = true;
+      try {
+        status("Initializing audio engine…");
+        await client.init();
+        status("Fetching synth…");
+        synth = await client.loadSynth(DEMO_COMP);
+        await synth.play();
+        btn.textContent = "Stop";
+        btn.disabled = false;
+        status("Playing.");
+      } catch (e) {
+        status(e?.message ?? String(e), true);
+        btn.disabled = false;
+        btn.textContent = "Play synth";
+      }
+    });
+  </script>
+</body>
+</html>
