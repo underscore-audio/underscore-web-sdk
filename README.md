@@ -2,8 +2,9 @@
 
 A generative audio SDK for apps, games, and interactive software.
 
-Underscore generates programmable synth systems that your app can play,
-stop, and control at runtime — no composer, no audio engine to build.
+Underscore generates programmable synth systems your app can play, stop,
+and control at runtime — code, not audio files; describe a sound, get a
+synth your app drives directly.
 
 [![npm version](https://img.shields.io/npm/v/@underscore-audio/sdk)](https://www.npmjs.com/package/@underscore-audio/sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
