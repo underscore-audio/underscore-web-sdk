@@ -39,21 +39,13 @@ jobs:
         run: npm run build
 
   # Gate A: the SDK can't release if it doesn't pass against the
-  # currently-deployed underscore api/web. We pin the underscore SHA to
-  # test against in `.underscore-version` (a 40-char git SHA at repo
-  # root). This job clones underscore at that SHA, boots its
-  # docker-compose stack with TEST_LLM_PROVIDER=test, and runs the
-  # SDK's live test suite via underscore's `make test-sdk` -- which
-  # auto-provisions a throwaway Clerk user and mints API keys via the
-  # /cli/auth flow. No production secrets are ever touched.
+  # currently-deployed backend. Pins the backend SHA in
+  # `.underscore-version`, boots its stack, and runs the SDK's live
+  # test suite. No production secrets are ever touched.
   #
-  # Required Clerk *test* instance secrets (sandboxed from prod):
+  # Required test-instance secrets (sandboxed from prod):
   #   E2E_VITE_CLERK_PUBLISHABLE_KEY, E2E_CLERK_SECRET_KEY.
   # Self-skips if either is missing.
-  #
-  # Branch protection (manual GH UI step) makes this a required check
-  # for merge to main, so nothing reaches main that can't pass against
-  # the deployed underscore.
   e2e-against-deployed:
     name: e2e against deployed underscore
     runs-on: ubuntu-latest
@@ -95,11 +87,11 @@ jobs:
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Check out underscore at the pinned SHA
+      - name: Check out backend at the pinned SHA
         if: steps.check.outputs.enabled == 'true'
         uses: actions/checkout@v4
         with:
-          repository: underscore-audio/underscore
+          repository: ${{ secrets.UNDERSCORE_REPO }}
           ref: ${{ steps.pin.outputs.sha }}
           path: underscore
           token: ${{ secrets.UNDERSCORE_REPO_TOKEN }}
