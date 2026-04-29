@@ -1,26 +1,15 @@
 /*
  * Vitest globalSetup for the live test suite.
  *
- * The orchestration that mints a fresh Clerk user and provisions API
- * keys lives in the underscore monorepo, not here. The Clerk admin
- * API and the /cli/auth Playwright dance both need access to
- * underscore-side machinery (`@clerk/testing`, the api/web docker
- * stack, the wizard fixtures), and pulling those into the SDK's dev
- * deps would balloon the install size for everyone who just wants to
- * `npm i @underscore-audio/sdk`.
+ * The full end-to-end harness (user provisioning, API key minting,
+ * test-data seeding) lives in the backend repo and invokes
+ * `npm run test:live` here after exporting UNDERSCORE_* env vars.
+ * This file makes that contract explicit: if the env vars aren't set,
+ * it prints a clear message instead of letting tests skip silently.
  *
- * Concretely: when the harness runs end-to-end, the underscore-side
- * runner script (web/scripts/sdk-live-runner.ts) provisions a user,
- * mints keys via /cli/auth, seeds a composition+synth, exports
- * UNDERSCORE_* env vars, and then invokes `npm run test:live` here.
- * This file's job is to make that contract explicit -- if the env
- * vars aren't set, fail fast with a pointer to the runner instead of
- * letting individual tests skip silently.
- *
- * Manual override is still supported: if the developer set
- * UNDERSCORE_PUBLISHABLE_KEY and UNDERSCORE_TEST_COMPOSITION_ID by
- * hand (e.g. to debug against a long-lived staging composition), we
- * trust them and skip the contract check.
+ * Manual override: set UNDERSCORE_PUBLISHABLE_KEY and
+ * UNDERSCORE_TEST_COMPOSITION_ID by hand to debug against a
+ * long-lived composition without the full harness.
  */
 
 import { readFileSync } from "node:fs";
