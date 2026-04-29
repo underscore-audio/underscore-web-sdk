@@ -1,8 +1,13 @@
 name: CI
 
+# Tag triggers (`v*`) only fire publish workflows. Pushes/PRs to main
+# run lint+unit+gate jobs but never publish; releases are explicit
+# `git tag v<x.y.z> && git push --tags` events. See the `publish` and
+# `publish-wizard` jobs below for the matching `if:` filter.
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -33,14 +38,159 @@ jobs:
       - name: Build
         run: npm run build
 
-  # The previous `e2e` job here invoked a `test:e2e` script that never
-  # existed and never passed on main. Real end-to-end coverage for the
-  # SDK lives in the main underscore repo
-  # (web/tests/e2e/wizard-install.spec.ts), where we can spin up the full
-  # API stack with LocalStack/Redis. If we ever want a self-contained
-  # live-API fixture here worth running on every push, we can re-add a
-  # proper job -- until then, a perpetually-red check only hides real
-  # failures and forces `--admin` merges.
+  # Gate A: the SDK can't release if it doesn't pass against the
+  # currently-deployed underscore api/web. We pin the underscore SHA to
+  # test against in `.underscore-version` (a 40-char git SHA at repo
+  # root). This job clones underscore at that SHA, boots its
+  # docker-compose stack with TEST_LLM_PROVIDER=test, and runs the
+  # SDK's live test suite via underscore's `make test-sdk` -- which
+  # auto-provisions a throwaway Clerk user and mints API keys via the
+  # /cli/auth flow. No production secrets are ever touched.
+  #
+  # Required Clerk *test* instance secrets (sandboxed from prod):
+  #   E2E_VITE_CLERK_PUBLISHABLE_KEY, E2E_CLERK_SECRET_KEY.
+  # Self-skips if either is missing.
+  #
+  # Branch protection (manual GH UI step) makes this a required check
+  # for merge to main, so nothing reaches main that can't pass against
+  # the deployed underscore.
+  e2e-against-deployed:
+    name: e2e against deployed underscore
+    runs-on: ubuntu-latest
+    needs: [test]
+    timeout-minutes: 30
+    steps:
+      - name: Check out SDK (this repo, PR HEAD)
+        uses: actions/checkout@v4
+        with:
+          path: sdk
+
+      - name: Read .underscore-version pin
+        id: pin
+        working-directory: sdk
+        run: |
+          if [ ! -f .underscore-version ]; then
+            echo "::error::.underscore-version is missing from the repo root."
+            echo "::error::This file pins the underscore api/web SHA the SDK is tested against."
+            exit 1
+          fi
+          SHA=$(tr -d '[:space:]' < .underscore-version)
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::.underscore-version is not a 40-char git SHA: $SHA"
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "==> .underscore-version pin: $SHA"
+
+      - name: Check for required Clerk test secrets
+        id: check
+        env:
+          VITE_CLERK_PK: ${{ secrets.E2E_VITE_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SK: ${{ secrets.E2E_CLERK_SECRET_KEY }}
+        run: |
+          if [ -z "$VITE_CLERK_PK" ] || [ -z "$CLERK_SK" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping e2e-against-deployed (set E2E_VITE_CLERK_PUBLISHABLE_KEY and E2E_CLERK_SECRET_KEY secrets to enable)"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out underscore at the pinned SHA
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: underscore-audio/underscore
+          ref: ${{ steps.pin.outputs.sha }}
+          path: underscore
+          token: ${{ secrets.UNDERSCORE_REPO_TOKEN }}
+
+      - name: Setup Node.js
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: underscore/package-lock.json
+
+      - name: Print cross-repo SHA banner
+        if: steps.check.outputs.enabled == 'true'
+        working-directory: underscore
+        env:
+          UNDERSCORE_SDK_DIR: ${{ github.workspace }}/sdk
+        run: |
+          {
+            echo "### Cross-repo SHAs"
+            echo ""
+            echo "| | SHA | Source |"
+            echo "| --- | --- | --- |"
+            echo "| underscore api/web | \`${{ steps.pin.outputs.sha }}\` | .underscore-version |"
+            echo "| @underscore-audio/sdk | \`${{ github.sha }}\` | SDK PR HEAD |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          make print-sdk-banner
+
+      - name: Install underscore root dependencies
+        if: steps.check.outputs.enabled == 'true'
+        working-directory: underscore
+        run: npm ci
+
+      - name: Build SDK (this PR's working tree)
+        if: steps.check.outputs.enabled == 'true'
+        working-directory: sdk
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build underscore workspace deps
+        if: steps.check.outputs.enabled == 'true'
+        working-directory: underscore
+        run: make build-deps
+
+      - name: Install Playwright browsers
+        if: steps.check.outputs.enabled == 'true'
+        working-directory: underscore
+        run: cd web && npx playwright install --with-deps chromium
+
+      - name: Start underscore services (docker compose)
+        if: steps.check.outputs.enabled == 'true'
+        working-directory: underscore
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.E2E_VITE_CLERK_PUBLISHABLE_KEY }}
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.E2E_VITE_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
+          VITE_POSTHOG_KEY: ""
+          VITE_POSTHOG_HOST: ""
+          POSTHOG_HOST: ""
+          TEST_LLM_PROVIDER: test
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.test.yml up -d --build --remove-orphans
+          for i in $(seq 1 60); do
+            curl -sf http://localhost:3333/health >/dev/null 2>&1 && \
+              curl -sf http://localhost:3000 >/dev/null 2>&1 && \
+              break
+            sleep 2
+          done
+          curl -sf http://localhost:3333/health
+          curl -sf http://localhost:3000
+
+      - name: Run SDK live tests against deployed-pinned underscore
+        if: steps.check.outputs.enabled == 'true'
+        working-directory: underscore
+        env:
+          CLERK_PUBLISHABLE_KEY: ${{ secrets.E2E_VITE_CLERK_PUBLISHABLE_KEY }}
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.E2E_VITE_CLERK_PUBLISHABLE_KEY }}
+          CLERK_SECRET_KEY: ${{ secrets.E2E_CLERK_SECRET_KEY }}
+          UNDERSCORE_BASE_URL: http://localhost:3333
+          UNDERSCORE_WEB_URL: http://localhost:3000
+          # Override: test the SDK PR HEAD instead of the underscore
+          # repo's submodule pin. The Makefile's drift guard skips when
+          # this is set; the banner labels the source clearly.
+          UNDERSCORE_SDK_DIR: ${{ github.workspace }}/sdk
+        run: make test-sdk
+
+      - name: Stop underscore services
+        if: always() && steps.check.outputs.enabled == 'true'
+        working-directory: underscore
+        run: docker compose -f docker-compose.yml -f docker-compose.test.yml down -v
 
   wizard:
     runs-on: ubuntu-latest
@@ -75,7 +225,11 @@ jobs:
   publish-wizard:
     runs-on: ubuntu-latest
     needs: [wizard]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Publish only on tag pushes (`git tag v<x.y.z> && git push --tags`).
+    # Dropping the previous "publish on every main push" trigger means
+    # releases are an explicit, auditable action, decoupled from version
+    # bumps that landed for other reasons.
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     # id-token: write is required for npm Trusted Publishing via OIDC.
     # contents: read is the default; we declare it explicitly because setting
     # any permission resets all others to none unless listed.
@@ -128,8 +282,12 @@ jobs:
 
   publish:
     runs-on: ubuntu-latest
-    needs: [test]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # Gate A: only publish if the SDK passes against the currently-
+    # deployed underscore. The test job covers unit + lint + build;
+    # e2e-against-deployed covers cross-repo contract.
+    needs: [test, e2e-against-deployed]
+    # Publish only on tag pushes (`git tag v<x.y.z> && git push --tags`).
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     permissions:
       id-token: write
       contents: read
