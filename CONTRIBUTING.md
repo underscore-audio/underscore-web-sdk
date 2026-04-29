@@ -83,6 +83,23 @@ Configuration is entirely through environment variables so the same
 harness runs against `http://localhost:3333` (the default when you
 `make dev-api` in the monorepo) and `https://underscore.audio`.
 
+CI runs the live suite against the api/web SHA pinned in
+[`.underscore-version`](./.underscore-version) at the repo root. That file
+is a single-line, 40-char git SHA of the underscore repo
+(`https://github.com/underscore-audio/underscore`); the CI workflow clones
+underscore at that commit, boots its docker-compose stack, and runs
+`npm run test:live` against it. The pin is meant to track whatever
+underscore SHA is currently deployed to production, so the SDK can be
+released with confidence that it works against what users actually hit
+when they call its API.
+
+If your SDK change requires a corresponding underscore change that has
+not yet been deployed (or even merged), you can update
+`.underscore-version` in the same PR to point at the underscore branch
+HEAD or PR merge SHA. After both land and underscore deploys, an
+automated bumper PR will snap `.underscore-version` back to the
+deployed SHA.
+
 | Variable                         | Required for             | Notes                                                                            |
 | -------------------------------- | ------------------------ | -------------------------------------------------------------------------------- |
 | `UNDERSCORE_BASE_URL`            | all                      | Defaults to `http://localhost:3333`. Set to `https://underscore.audio` for prod. |
