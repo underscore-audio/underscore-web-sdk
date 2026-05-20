@@ -21,6 +21,7 @@
 
 import type { GenerationEvent } from "./types.js";
 import { ApiError } from "./errors.js";
+import { GenerateResponseSchema } from "./schemas.js";
 
 export interface StartGenerationOptions {
   compositionId: string;
@@ -66,12 +67,13 @@ export async function startGeneration(
     );
   }
 
-  const data = (await response.json()) as { jobId?: string; streamUrl?: string };
-  if (!data.jobId || !data.streamUrl) {
+  const data = await response.json();
+  const result = GenerateResponseSchema.safeParse(data);
+  if (!result.success) {
     throw new ApiError("Malformed start-generation response (missing jobId or streamUrl)", 500);
   }
 
-  return { jobId: data.jobId, streamUrl: data.streamUrl };
+  return result.data;
 }
 
 /**

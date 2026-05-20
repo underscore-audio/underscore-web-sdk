@@ -19,6 +19,7 @@
 
 import { describe, it, expect } from "vitest";
 import { Underscore, type GenerationEvent } from "../../src/index.js";
+import { StreamEventSchema } from "../../src/schemas.js";
 import { loadLiveConfig, pingApi } from "./config.js";
 
 const cfg = loadLiveConfig();
@@ -81,6 +82,11 @@ describe.skipIf(skipReason !== null)("live: generation", () => {
      */
     for await (const event of client.subscribeToGeneration(streamUrl)) {
       events.push(event);
+      StreamEventSchema.parse({
+        type: event.type,
+        content: event.content,
+        synthName: event.synthName,
+      });
       if (event.type === "ready") {
         readySynthName = event.synthName;
         break;
@@ -97,7 +103,5 @@ describe.skipIf(skipReason !== null)("live: generation", () => {
     const metadata = await client.getSynth(compositionId, readySynthName!);
     expect(metadata.name).toBe(readySynthName);
     expect(Array.isArray(metadata.params)).toBe(true);
-  }, // Generous per-test timeout on top of the global one; if a real LLM
-  // takes this long something is wrong and we want a clean failure.
-  150_000);
+  }, 150_000);
 });

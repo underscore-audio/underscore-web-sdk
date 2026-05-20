@@ -2,6 +2,18 @@
  * Public types for the Underscore SDK.
  */
 
+import type {
+  ParamType as GeneratedParamType,
+  ParamScale as GeneratedParamScale,
+  ParamMetadata as GeneratedParamMetadata,
+  SampleMetadata as GeneratedSampleMetadata,
+  SynthSummary as GeneratedSynthSummary,
+  SynthMetadata as GeneratedSynthMetadata,
+  CompositionResponse as GeneratedComposition,
+  CreateCompositionRequest as GeneratedCreateCompositionOptions,
+  CreateCompositionResponse as GeneratedCreateCompositionResponse,
+} from "./generated/api-types.js";
+
 /**
  * Log level for SDK debug output.
  */
@@ -57,39 +69,39 @@ export interface UnderscoreConfig {
  * Parameter type classification.
  * Determines appropriate UI controls and value scaling.
  */
-export type ParamType = string;
+export type ParamType = GeneratedParamType;
 
 /**
  * Value scaling for parameter controls.
  */
-export type ParamScale = "linear" | "log" | "exp";
+export type ParamScale = GeneratedParamScale;
 
 /**
  * Parameter metadata for synth controls.
  */
-export interface ParamMetadata {
-  /** Parameter name (used in OSC messages) */
+export interface ParamMetadata extends GeneratedParamMetadata {
+  /** Parameter name (used in OSC messages). */
   name: string;
 
-  /** Parameter type for UI hints */
+  /** Parameter type for UI hints. */
   type: ParamType;
 
-  /** Default value */
+  /** Default value. */
   default: number;
 
-  /** Minimum value */
+  /** Minimum value. */
   min: number;
 
-  /** Maximum value */
+  /** Maximum value. */
   max: number;
 
-  /** Value scaling (default: linear) */
+  /** Value scaling. Defaults to linear when omitted. */
   scale?: ParamScale;
 
-  /** Display unit (e.g., "Hz", "ms", "dB") */
+  /** Display unit, such as "Hz", "ms", or "dB". */
   unit?: string;
 
-  /** Human-readable description */
+  /** Human-readable description. */
   description: string;
 }
 
@@ -97,123 +109,123 @@ export interface ParamMetadata {
  * Metadata for an audio sample used by a synth.
  * Samples are loaded as buffers and referenced in the SynthDef code via PlayBuf.ar.
  */
-export interface SampleMetadata {
-  /** Buffer number in SuperCollider (0, 1, 2...) */
+export interface SampleMetadata extends GeneratedSampleMetadata {
+  /** Buffer number in SuperCollider: 0, 1, 2, and so on. */
   bufferNum: number;
 
-  /** Sample identifier (e.g., "choir", "texture1") */
+  /** Sample identifier, such as "choir" or "texture1". */
   id: string;
 
-  /** Description of the sample */
+  /** Description of the sample. */
   description: string;
 
-  /** S3 key where sample is stored */
+  /** Storage key where the sample is stored. */
   s3Key: string;
 
-  /** URL to download the sample (signed URL) */
+  /** URL to download the sample, when one is available. */
   url?: string;
 
-  /** Duration in seconds */
+  /** Duration in seconds. */
   durationSec: number;
 
-  /** Number of channels (1 = mono, 2 = stereo) */
+  /** Number of channels: 1 for mono, 2 for stereo. */
   channels: number;
 
-  /** Sample rate (typically 48000) */
+  /** Sample rate, typically 48000. */
   sampleRate: number;
 
-  /** Whether sample was generated with loop flag */
+  /** Whether the sample was generated with a loop flag. */
   loop: boolean;
 }
 
 /**
  * Synth summary returned from list endpoint.
  */
-export interface SynthSummary {
-  /** Synth name (unique within composition) */
+export interface SynthSummary extends GeneratedSynthSummary {
+  /** Synth name, unique within a composition. */
   name: string;
 
-  /** Human-readable description */
+  /** Human-readable description. */
   description: string;
 
-  /** Parameter definitions */
+  /** Parameter definitions. */
   params: ParamMetadata[];
 
-  /** Creation timestamp (ISO 8601) */
+  /** Creation timestamp as an ISO 8601 string. */
   createdAt: string;
 }
 
 /**
  * Full synth metadata including samples.
  */
-export interface SynthMetadata {
-  /** Synth name (unique within composition) */
+export interface SynthMetadata extends GeneratedSynthMetadata {
+  /** Synth name, unique within a composition. */
   name: string;
 
-  /** Human-readable description */
+  /** Human-readable description. */
   description: string;
 
-  /** Parameter definitions */
+  /** Parameter definitions. */
   params: ParamMetadata[];
 
-  /** Optional audio samples used by this synth */
+  /** Optional audio samples used by this synth. */
   samples?: SampleMetadata[];
 
-  /** Creation timestamp (ISO 8601) */
+  /** Creation timestamp as an ISO 8601 string. */
   createdAt: string;
 
-  /** URL to download the compiled synthdef */
+  /** URL to download the compiled synthdef. */
   synthdefUrl: string;
 }
 
 /**
  * Composition metadata from the API.
  */
-export interface Composition {
-  /** Composition ID */
+export interface Composition extends GeneratedComposition {
+  /** Composition ID. */
   id: string;
 
-  /** Visibility: "unlisted" | "public" | "private" */
-  visibility?: string;
+  /** Visibility of the composition. */
+  visibility?: "private" | "unlisted" | "public";
 
-  /** Number of synths in this composition */
+  /** Number of synths in this composition. */
   synthCount?: number;
 
-  /** Name of the most recently created synth */
+  /** Name of the most recently created synth. */
   lastSynthName?: string | null;
 
-  /** Creation timestamp (ISO 8601) */
+  /** Creation timestamp as an ISO 8601 string. */
   createdAt: string;
 
-  /** Last updated timestamp (ISO 8601) */
+  /** Last updated timestamp as an ISO 8601 string. */
   updatedAt?: string;
 }
 
 /**
  * Options for creating a new composition.
  */
-export interface CreateCompositionOptions {
-  /** Optional title */
+export interface CreateCompositionOptions extends GeneratedCreateCompositionOptions {
+  /** Optional title. */
   title?: string;
 
-  /** Visibility: "unlisted" (default) or "public" */
+  /** Visibility for the new composition. Defaults to "unlisted". */
   visibility?: "unlisted" | "public";
 }
 
 /**
  * Response from creating a composition.
  */
-export interface CreateCompositionResponse {
-  /** New composition ID */
+export interface CreateCompositionResponse extends GeneratedCreateCompositionResponse {
+  /** New composition ID. */
   id: string;
 
-  /** Title (if provided) */
+  /** Title, if provided. */
   title?: string | null;
 
-  /** Visibility setting */
-  visibility: string;
+  /** Visibility setting. */
+  visibility: "unlisted" | "public";
 
-  /** Creation timestamp */
+  /** Creation timestamp as an ISO 8601 string. */
   createdAt: string;
 }
 

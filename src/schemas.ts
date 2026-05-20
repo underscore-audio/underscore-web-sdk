@@ -1,86 +1,21 @@
-/**
- * Zod schemas for runtime validation of API responses.
- *
- * These schemas ensure that API responses match expected shapes,
- * providing clear error messages when the API contract changes.
- *
- * These schemas must match the API contract defined in the underscore monorepo.
- * If the API changes, update these schemas accordingly.
- */
-
-import { z } from "zod";
-
-/**
- * Parameter type - accepts any string since synths can define custom types.
- * Common types: amp, freq, time, tempo, control, switch, factor, musical, generic, bpm
- */
-export const ParamTypeSchema = z.string();
-
-export const ParamScaleSchema = z.enum(["linear", "log", "exp"]);
-
-export const ParamMetadataSchema = z.object({
-  name: z.string(),
-  type: ParamTypeSchema,
-  default: z.number(),
-  min: z.number(),
-  max: z.number(),
-  scale: ParamScaleSchema.optional(),
-  unit: z.string().optional(),
-  description: z.string(),
-});
-
-
-
-
-
-export const SampleMetadataSchema = z.object({
-  bufferNum: z.number(),
-  id: z.string(),
-  description: z.string(),
-  s3Key: z.string(),
-  url: z.string().optional(),
-  durationSec: z.number(),
-  channels: z.number(),
-  sampleRate: z.number(),
-  loop: z.boolean(),
-});
-
-export const SynthSummarySchema = z.object({
-  name: z.string(),
-  description: z.string(),
-  params: z.array(ParamMetadataSchema),
-  createdAt: z.string(),
-});
-
-export const SynthMetadataSchema = z.object({
-  name: z.string(),
-  description: z.string(),
-  params: z.array(ParamMetadataSchema),
-  samples: z.array(SampleMetadataSchema).optional(),
-  createdAt: z.string(),
-  synthdefUrl: z.string(),
-});
-
-export const ListSynthsResponseSchema = z.object({
-  synths: z.array(SynthSummarySchema),
-});
-
-export const CompositionSchema = z.object({
-  id: z.string(),
-  visibility: z.string().optional(),
-  synthCount: z.number().optional(),
-  lastSynthName: z.string().nullable().optional(),
-  createdAt: z.string(),
-  updatedAt: z.string().optional(),
-});
-
-export const CreateCompositionResponseSchema = z.object({
-  id: z.string(),
-  title: z.string().nullable().optional(),
-  visibility: z.string(),
-  createdAt: z.string(),
-});
-
-export const GenerateResponseSchema = z.object({
-  streamUrl: z.string(),
-});
+export {
+  ParamTypeSchema,
+  ParamScaleSchema,
+  ParamMetadataSchema,
+  SampleMetadataSchema,
+  SynthSummarySchema,
+  SynthMetadataSchema,
+  ListSynthsResponseSchema,
+  CompositionResponseSchema,
+  CompositionResponseSchema as CompositionSchema,
+  CreateCompositionRequestSchema,
+  CreateCompositionResponseSchema,
+  GenerateRequestSchema,
+  GenerateResponseSchema,
+  DiscoverQuerySchema,
+  DiscoverCompositionSchema,
+  DiscoverResponseSchema,
+  ErrorResponseSchema,
+  ValidationErrorResponseSchema,
+  StreamEventSchema,
+} from "./generated/api-schemas.js";
