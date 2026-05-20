@@ -80,23 +80,18 @@ as behavior if they're documented or implied by the public API.
 
 The live suite exercises the SDK against a real API (local or production).
 Configuration is entirely through environment variables so the same
-harness runs against `http://localhost:3333` (the default when you
-`make dev-api` in the monorepo) and `https://underscore.audio`.
+harness runs against `http://localhost:3333` by default, or
+`https://underscore.audio` when `UNDERSCORE_BASE_URL` is set.
 
-CI runs the live suite against the backend SHA pinned in
-[`.underscore-version`](./.underscore-version) at the repo root. That file
-is a single-line, 40-char git SHA; the CI workflow clones the backend at
-that commit, boots its docker stack, and runs `npm run test:live` against
-it. The pin tracks whatever backend SHA is currently deployed to
-production, so the SDK can be released with confidence that it works
-against what users actually hit when they call its API.
+CI can run the live suite against the backend SHA pinned in
+[`.underscore-version`](./.underscore-version) when maintainer-only
+checkout secrets are available. That file is a single-line, 40-char git
+SHA. Public contributors do not need private backend access for the
+mocked SDK and wizard test suites.
 
-If your SDK change requires a corresponding underscore change that has
-not yet been deployed (or even merged), you can update
-`.underscore-version` in the same PR to point at the underscore branch
-HEAD or PR merge SHA. After both land and underscore deploys, an
-automated bumper PR will snap `.underscore-version` back to the
-deployed SHA.
+Maintainers may update `.underscore-version` in SDK PRs that intentionally
+test generated artifacts against a newer backend contract. The generated
+contract check fails if the pin and checked-in SDK artifacts drift.
 
 | Variable                         | Required for             | Notes                                                                            |
 | -------------------------------- | ------------------------ | -------------------------------------------------------------------------------- |

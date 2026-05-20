@@ -38,6 +38,78 @@ jobs:
       - name: Build
         run: npm run build
 
+  contract-artifacts:
+    name: generated contract artifacts
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - name: Check out SDK (this repo, PR HEAD)
+        uses: actions/checkout@v4
+        with:
+          path: sdk
+
+      - name: Read .underscore-version pin
+        id: pin
+        working-directory: sdk
+        run: |
+          if [ ! -f .underscore-version ]; then
+            echo "::error::.underscore-version is missing from the repo root."
+            exit 1
+          fi
+          SHA=$(tr -d '[:space:]' < .underscore-version)
+          if ! [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::.underscore-version is not a 40-char git SHA: $SHA"
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check for backend checkout secrets
+        id: check
+        env:
+          BACKEND_REPO: ${{ secrets.UNDERSCORE_REPO }}
+          BACKEND_TOKEN: ${{ secrets.UNDERSCORE_REPO_TOKEN }}
+        run: |
+          if [ -z "$BACKEND_REPO" ] || [ -z "$BACKEND_TOKEN" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Skipping generated contract artifact check because backend checkout secrets are not configured. Internal PRs and release tags should configure these secrets so stale generated files are blocked."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out backend at the pinned SHA
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.UNDERSCORE_REPO }}
+          ref: ${{ steps.pin.outputs.sha }}
+          path: backend
+          token: ${{ secrets.UNDERSCORE_REPO_TOKEN }}
+
+      - name: Setup Node.js
+        if: steps.check.outputs.enabled == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        if: steps.check.outputs.enabled == 'true'
+        working-directory: backend
+        run: npm ci
+
+      - name: Check generated contract artifacts
+        if: steps.check.outputs.enabled == 'true'
+        working-directory: backend
+        env:
+          UNDERSCORE_SDK_DIR: ${{ github.workspace }}/sdk
+        run: |
+          if ! npm run check:sdk-contract -w @underscore/api; then
+            echo "::error::Generated SDK contract artifacts are stale for backend SHA ${{ steps.pin.outputs.sha }}."
+            echo "::error::Regenerate from the backend repo with UNDERSCORE_SDK_DIR=/path/to/underscore-web-sdk make generate-sdk-contract, then commit the SDK artifact changes and update .underscore-version."
+            exit 1
+          fi
+
   # Gate A: the SDK can't release if it doesn't pass against the
   # currently-deployed backend. Pins the backend SHA in
   # `.underscore-version`, boots its stack, and runs the SDK's live
@@ -264,20 +336,19 @@ jobs:
             echo "publish=true" >> $GITHUB_OUTPUT
           fi
 
-      # --provenance is intentionally omitted: npm's sigstore attestation
-      # requires the source repository to be public, and this repo is still
-      # private. Trusted Publishing (OIDC auth, no NPM_TOKEN) still works
-      # without it. Re-add --provenance once the repo is made public.
+      # The repository is public, so publish with npm provenance enabled.
+      # Trusted Publishing supplies the OIDC identity; no NPM_TOKEN is needed.
       - name: Publish to npm
         if: steps.check.outputs.publish == 'true'
-        run: npm publish --access public
+        run: npm publish --access public --provenance
 
   publish:
     runs-on: ubuntu-latest
     # Gate A: only publish if the SDK passes against the currently-
     # deployed underscore. The test job covers unit + lint + build;
-    # e2e-against-deployed covers cross-repo contract.
-    needs: [test, e2e-against-deployed]
+    # contract-artifacts covers generated source freshness when secrets
+    # are available; e2e-against-deployed covers live compatibility.
+    needs: [test, contract-artifacts, e2e-against-deployed]
     # Publish only on tag pushes (`git tag v<x.y.z> && git push --tags`).
     if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
     permissions:
@@ -309,10 +380,8 @@ jobs:
             echo "publish=true" >> $GITHUB_OUTPUT
           fi
 
-      # --provenance is intentionally omitted: npm's sigstore attestation
-      # requires the source repository to be public, and this repo is still
-      # private. Trusted Publishing (OIDC auth, no NPM_TOKEN) still works
-      # without it. Re-add --provenance once the repo is made public.
+      # The repository is public, so publish with npm provenance enabled.
+      # Trusted Publishing supplies the OIDC identity; no NPM_TOKEN is needed.
       - name: Publish to npm
         if: steps.check.outputs.publish == 'true'
-        run: npm publish --access public
+        run: npm publish --access public --provenance

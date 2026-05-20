@@ -75,7 +75,7 @@ describe("generation", () => {
     it("throws ApiError when server response is malformed", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
-        json: () => Promise.resolve({ jobId: "job_abc" /* no streamUrl */ }),
+        json: () => Promise.resolve({ jobId: "not-a-job-id", streamUrl: "/not-a-stream" }),
       });
 
       const { startGeneration } = await import("./generation.js");

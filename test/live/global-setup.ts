@@ -1,11 +1,10 @@
 /*
  * Vitest globalSetup for the live test suite.
  *
- * The full end-to-end harness (user provisioning, API key minting,
- * test-data seeding) lives in the backend repo and invokes
- * `npm run test:live` here after exporting UNDERSCORE_* env vars.
- * This file makes that contract explicit: if the env vars aren't set,
- * it prints a clear message instead of letting tests skip silently.
+ * Maintainer-owned live harnesses can provision users, API keys, and
+ * test data before invoking `npm run test:live` with UNDERSCORE_* env
+ * vars. This file makes that contract explicit: if the env vars aren't
+ * set, it prints a clear message instead of letting tests skip silently.
  *
  * Manual override: set UNDERSCORE_PUBLISHABLE_KEY and
  * UNDERSCORE_TEST_COMPOSITION_ID by hand to debug against a
@@ -69,17 +68,15 @@ export default async function setup(): Promise<() => Promise<void>> {
 
   if (!ctx.bypassed) {
     console.log("    UNDERSCORE_PUBLISHABLE_KEY not set: live tests will skip.");
-    console.log("    To run end-to-end against the underscore stack, use");
-    console.log("    `make test-sdk` from the underscore monorepo.");
+    console.log("    Set UNDERSCORE_* live-test env vars to run against a real API.");
     console.log("    To target a long-lived composition manually, see CONTRIBUTING.md.");
   }
 
   return async () => {
     /*
      * Per-process teardown happens here. We have nothing to clean up
-     * directly because Clerk users + compositions are owned by the
-     * underscore-side runner script, which deletes them in its own
-     * try/finally. This hook stays a no-op intentionally.
+     * directly because externally provisioned live-test data is owned by
+     * the harness that created it. This hook stays a no-op intentionally.
      */
   };
 }

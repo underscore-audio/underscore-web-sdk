@@ -11,10 +11,8 @@ import { defineConfig } from "vitest/config";
  *  - `npm run test:live` can opt into longer timeouts and real fetch.
  *
  * `globalSetup` runs once before any test file and emits a SHA banner
- * + sanity-checks env-var presence. The actual fixture provisioning
- * (Clerk user, API keys, seeded composition) is owned by the
- * underscore monorepo's `make test-sdk` runner -- see
- * test/live/global-setup.ts for why.
+ * + sanity-checks env-var presence. Fixture provisioning is external to
+ * this repo; see test/live/global-setup.ts for the expected env contract.
  */
 export default defineConfig({
   test: {
