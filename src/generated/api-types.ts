@@ -8,6 +8,13 @@ import {
   ParamScaleSchema,
   ParamMetadataSchema,
   SampleMetadataSchema,
+  AutomationShapeSchema,
+  AutomationEventSchema,
+  AutomationTimelineSchema,
+  ScoreActionSchema,
+  ScoreEventSchema,
+  ScoreSchema,
+  VoiceDefSchema,
   SynthSummarySchema,
   SynthMetadataSchema,
   ListSynthsResponseSchema,
@@ -30,6 +37,13 @@ export type ParamType = z.infer<typeof ParamTypeSchema>;
 export type ParamScale = z.infer<typeof ParamScaleSchema>;
 export type ParamMetadata = z.infer<typeof ParamMetadataSchema>;
 export type SampleMetadata = z.infer<typeof SampleMetadataSchema>;
+export type AutomationShape = z.infer<typeof AutomationShapeSchema>;
+export type AutomationEvent = z.infer<typeof AutomationEventSchema>;
+export type AutomationTimeline = z.infer<typeof AutomationTimelineSchema>;
+export type ScoreAction = z.infer<typeof ScoreActionSchema>;
+export type ScoreEvent = z.infer<typeof ScoreEventSchema>;
+export type Score = z.infer<typeof ScoreSchema>;
+export type VoiceDef = z.infer<typeof VoiceDefSchema>;
 export type SynthSummary = z.infer<typeof SynthSummarySchema>;
 export type SynthMetadata = z.infer<typeof SynthMetadataSchema>;
 export type ListSynthsResponse = z.infer<typeof ListSynthsResponseSchema>;

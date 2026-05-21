@@ -31,6 +31,45 @@ export const SampleMetadataSchema = z.object({
   loop: z.boolean(),
 });
 
+export const AutomationShapeSchema = z.enum(["linear", "exp"]);
+
+export const AutomationEventSchema = z.object({
+  atSec: z.number(),
+  param: z.string(),
+  value: z.number(),
+  rampSec: z.number().optional(),
+  shape: AutomationShapeSchema.optional(),
+});
+
+export const AutomationTimelineSchema = z.object({
+  durationSec: z.number(),
+  loop: z.boolean(),
+  events: z.array(AutomationEventSchema),
+});
+
+export const ScoreActionSchema = z.enum(["play", "set", "release"]);
+
+export const ScoreEventSchema = z.object({
+  atSec: z.number(),
+  voice: z.string(),
+  action: ScoreActionSchema,
+  params: z.record(z.number()).optional(),
+  rampSec: z.number().optional(),
+  shape: AutomationShapeSchema.optional(),
+});
+
+export const ScoreSchema = z.object({
+  durationSec: z.number(),
+  loop: z.boolean(),
+  events: z.array(ScoreEventSchema),
+});
+
+export const VoiceDefSchema = z.object({
+  name: z.string(),
+  scsyndefUrl: z.string(),
+  params: z.array(ParamMetadataSchema),
+});
+
 export const SynthSummarySchema = z.object({
   name: z.string(),
   description: z.string(),
@@ -43,6 +82,9 @@ export const SynthMetadataSchema = z.object({
   description: z.string(),
   params: z.array(ParamMetadataSchema),
   samples: z.array(SampleMetadataSchema).optional(),
+  automation: AutomationTimelineSchema.optional(),
+  voices: z.array(VoiceDefSchema).optional(),
+  score: ScoreSchema.optional(),
   createdAt: z.string(),
   synthdefUrl: z.string(),
 });
@@ -78,6 +120,7 @@ export const CreateCompositionResponseSchema = z.object({
 
 export const GenerateRequestSchema = z.object({
   description: z.string().trim().min(1),
+  generationProfile: z.enum(["default", "ambient", "ensemble"]).optional(),
 });
 
 export const GenerateResponseSchema = z.object({
