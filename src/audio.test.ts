@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AudioEngine } from "./audio.js";
-import { AudioError } from "./errors.js";
+import { AudioError, ValidationError } from "./errors.js";
 
 describe("AudioEngine", () => {
   let engine: AudioEngine;
@@ -106,9 +106,7 @@ describe("AudioEngine", () => {
 
   describe("play()", () => {
     it("throws when not initialized", async () => {
-      await expect(engine.play("test_synth")).rejects.toThrow(
-        "Audio not initialized",
-      );
+      await expect(engine.play("test_synth")).rejects.toThrow("Audio not initialized");
     });
   });
 
@@ -116,6 +114,100 @@ describe("AudioEngine", () => {
     it("does nothing when no synth is loaded", async () => {
       await expect(engine.toggle()).resolves.toBeUndefined();
       expect(engine.isPlaying()).toBe(false);
+    });
+  });
+
+  describe("masterVolume", () => {
+    it("defaults to 1.0 before any setMasterVolume call", () => {
+      expect(engine.getMasterVolume()).toBe(1);
+    });
+
+    it("setMasterVolume(0) stores 0", () => {
+      engine.setMasterVolume(0);
+      expect(engine.getMasterVolume()).toBe(0);
+    });
+
+    it("setMasterVolume(1) stores 1", () => {
+      engine.setMasterVolume(1);
+      expect(engine.getMasterVolume()).toBe(1);
+    });
+
+    it("setMasterVolume(3) clamps to ceiling 2 and warns (no throw)", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        expect(() => engine.setMasterVolume(3)).not.toThrow();
+        expect(engine.getMasterVolume()).toBe(2);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it("setMasterVolume(-1) clamps to floor 0 and warns (no throw)", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        expect(() => engine.setMasterVolume(-1)).not.toThrow();
+        expect(engine.getMasterVolume()).toBe(0);
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it("setMasterVolume(NaN) throws ValidationError", () => {
+      expect(() => engine.setMasterVolume(NaN)).toThrow(ValidationError);
+    });
+
+    it("setMasterVolume(Infinity) throws ValidationError", () => {
+      expect(() => engine.setMasterVolume(Infinity)).toThrow(ValidationError);
+    });
+
+    it("getMasterVolume returns the most recent clamped value across multiple sets", () => {
+      engine.setMasterVolume(0.5);
+      expect(engine.getMasterVolume()).toBe(0.5);
+      engine.setMasterVolume(1.7);
+      expect(engine.getMasterVolume()).toBe(1.7);
+      engine.setMasterVolume(0);
+      expect(engine.getMasterVolume()).toBe(0);
+    });
+
+    it("is independent of per-synth setParam('amp', x): amp cache is unaffected", () => {
+      /*
+       * Master gain layers on top of per-voice amp ramps without
+       * mutating them. This is the contract that makes it safe for a
+       * UI slider to ride above per-voice amp settings.
+       */
+      engine.setMasterVolume(2);
+      expect(engine.getMasterVolume()).toBe(2);
+      expect(engine.getParam("amp")).toBeUndefined();
+      expect(engine.getAllParams()).toEqual({});
+    });
+
+    it("when a masterGain node is present, setMasterVolume drives it via setTargetAtTime", () => {
+      /*
+       * Real init requires AudioWorkletNode + WASM, neither present in
+       * the node test environment. Inject a fake GainNode + an
+       * AudioContext stub (only currentTime is read) so the
+       * setTargetAtTime call path is observable without a browser.
+       */
+      const fakeGain = {
+        gain: {
+          value: 1,
+          setTargetAtTime: vi.fn(),
+        },
+      };
+      const fakeSonic = { audioContext: { currentTime: 42 } };
+      (engine as unknown as { masterGain: typeof fakeGain }).masterGain = fakeGain;
+      (engine as unknown as { sonic: typeof fakeSonic }).sonic = fakeSonic;
+
+      engine.setMasterVolume(0.4);
+
+      expect(fakeGain.gain.setTargetAtTime).toHaveBeenCalledTimes(1);
+      const [target, when, tau] = fakeGain.gain.setTargetAtTime.mock.calls[0];
+      expect(target).toBe(0.4);
+      expect(when).toBe(42);
+      expect(tau).toBeCloseTo(0.03, 5);
+      expect(engine.getMasterVolume()).toBe(0.4);
     });
   });
 
