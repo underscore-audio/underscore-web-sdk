@@ -228,6 +228,16 @@ export class ScoreScheduler {
 
     const initial = clampParams(event.params ?? {}, voice.params);
     /*
+     * Temporary per-voice playback log. The user wants quick
+     * confirmation from the browser console that each scheduled voice
+     * actually `/s_new`s; previously the only signal was downstream
+     * audio that may or may not be audible. Remove this (or gate
+     * behind a flag in `AudioEngineConfig`) once we've verified
+     * scheduler reliability against real bundles. `set` events are
+     * intentionally not logged here -- a typical 5-minute score has
+     * ~30 set events and would flood DevTools.
+     */
+    /*
      * spawnInstance is async only because it may need to resume the
      * AudioContext; in practice the context is already running by the
      * time the score fires. Floating the promise is safe because the
@@ -244,6 +254,10 @@ export class ScoreScheduler {
         cache.set(k, v);
       }
       this.liveVoices.set(voice.name, { nodeId, paramValues: cache });
+      // eslint-disable-next-line no-console
+      console.info(
+        `[underscore-sdk] voice "${voice.name}" started @ t=${event.atSec}s (nodeId=${nodeId})`
+      );
     });
   }
 
@@ -271,6 +285,8 @@ export class ScoreScheduler {
   private dispatchRelease(voice: VoiceDef, event: ScoreEvent): void {
     const live = this.liveVoices.get(voice.name);
     if (!live) return;
+    // eslint-disable-next-line no-console
+    console.info(`[underscore-sdk] voice "${voice.name}" released @ t=${event.atSec}s`);
     /*
      * Per the score-types contract: `release` lowers gate to 0 if the
      * voice exposes a `gate` param, otherwise frees the node directly.

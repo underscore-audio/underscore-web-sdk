@@ -293,6 +293,27 @@ export class Underscore {
   get audioContext(): AudioContext | null {
     return this.engine.audioContext;
   }
+
+  /**
+   * Set the master output volume.
+   *
+   * Thin pass-through to the audio engine's master `GainNode`.
+   * Accepts `[0, 2]`; values outside that range are clamped (with a
+   * console warning). Non-finite values throw `ValidationError`.
+   * Safe to call before `init()` — the value is cached and applied
+   * when the audio graph comes up.
+   */
+  setMasterVolume(value: number): void {
+    this.engine.setMasterVolume(value);
+  }
+
+  /**
+   * Get the current master output volume. Defaults to 1.0 before any
+   * `setMasterVolume` call.
+   */
+  getMasterVolume(): number {
+    return this.engine.getMasterVolume();
+  }
 }
 
 export default Underscore;

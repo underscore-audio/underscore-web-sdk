@@ -8,7 +8,30 @@
 import type { SynthState, SynthStateListener, SampleMetadata } from "./types.js";
 import type { SuperSonic } from "supersonic-scsynth";
 import { type Logger, noopLogger } from "./debug.js";
-import { AudioError } from "./errors.js";
+import { AudioError, ValidationError } from "./errors.js";
+
+/*
+ * Master volume ceiling rationale.
+ *
+ * Every voice the SDK plays ends in `Limiter.ar(sig * amp, 0.5, 0.01)`
+ * with per-UGen `mul <= 0.15`, so a single voice peaks at ~0.5 of
+ * WebAudio full-scale (~-6 dBFS). A master gain of 2.0 brings the
+ * limited peaks up to 1.0 (the WebAudio clip ceiling). Above 2.0 we'd
+ * be clipping audibly even on already-limiter-clamped content, which
+ * is never what we want — cap there and warn rather than letting
+ * consumers ship a distorted output by mistake.
+ */
+const MASTER_VOLUME_MAX = 2.0;
+const MASTER_VOLUME_MIN = 0;
+const MASTER_VOLUME_DEFAULT = 1.0;
+
+/*
+ * 30 ms is well below the perceptual fusion floor for amplitude
+ * changes but long enough to smear the discrete steps produced by a
+ * UI slider into a continuous ramp, so the user hears the level
+ * change as a single smooth motion instead of a zipper.
+ */
+const MASTER_VOLUME_SMOOTHING_SEC = 0.03;
 
 export interface AudioEngineConfig {
   wasmBaseUrl: string;
@@ -29,6 +52,8 @@ export class AudioEngine {
   private crossfadeInProgress = false;
   private outgoingNodeId: number | null = null;
   private log: Logger;
+  private masterGain: GainNode | null = null;
+  private masterVolume: number = MASTER_VOLUME_DEFAULT;
 
   constructor(config: AudioEngineConfig) {
     this.config = config;
@@ -91,6 +116,40 @@ export class AudioEngine {
         sampleRate: 48000,
       },
     });
+
+    /*
+     * Splice a single GainNode between the scsynth AudioWorklet and the
+     * AudioContext destination so consumers can adjust output level at
+     * the bus level without touching per-voice `amp`. Supersonic wires
+     * the worklet directly to `destination` during its own init, so we
+     * disconnect, then re-route worklet -> masterGain -> destination.
+     * `gain.value` is initialized to the cached `masterVolume` so a
+     * `setMasterVolume` call made before init is honored once the
+     * graph exists.
+     */
+    const sonicAny = this.sonic as unknown as {
+      workletNode: AudioNode | null;
+      audioContext: AudioContext | null;
+    };
+    const ctx = sonicAny.audioContext;
+    const workletNode = sonicAny.workletNode;
+    if (ctx && workletNode) {
+      this.masterGain = ctx.createGain();
+      this.masterGain.gain.value = this.masterVolume;
+      try {
+        workletNode.disconnect(ctx.destination);
+      } catch {
+        /*
+         * Older Supersonic builds may already have failed the original
+         * destination connect, or may have wired the worklet through a
+         * different node. A best-effort disconnect followed by an
+         * explicit re-connect is correct in either case; we never want
+         * a routing exception to break engine init.
+         */
+      }
+      workletNode.connect(this.masterGain);
+      this.masterGain.connect(ctx.destination);
+    }
 
     this.notify();
   }
@@ -265,6 +324,64 @@ export class AudioEngine {
     }
 
     this.sonic.send("/n_set", ...args);
+  }
+
+  /**
+   * Set the engine master output level.
+   *
+   * Applies a single `GainNode` between the synth output bus and
+   * `audioContext.destination`. Independent of per-synth `amp` cache
+   * values, so layering master volume on top of in-flight score amp
+   * ramps is safe.
+   *
+   * Clamps to `[0, 2]`; values outside that range are warned and
+   * clamped (not thrown) so that a UI slider with a slightly off
+   * upper bound doesn't break audio. Non-finite values (NaN /
+   * Infinity) throw `ValidationError` because they almost always
+   * indicate a UI bug a consumer should surface, not silently smooth.
+   */
+  setMasterVolume(value: number): void {
+    if (!Number.isFinite(value)) {
+      throw new ValidationError(
+        `setMasterVolume(value) requires a finite number, got ${value}`,
+        []
+      );
+    }
+    let clamped = value;
+    if (value > MASTER_VOLUME_MAX) {
+      console.warn(
+        `[underscore-sdk] setMasterVolume(${value}) above ceiling ${MASTER_VOLUME_MAX}; clamping`
+      );
+      clamped = MASTER_VOLUME_MAX;
+    } else if (value < MASTER_VOLUME_MIN) {
+      console.warn(
+        `[underscore-sdk] setMasterVolume(${value}) below floor ${MASTER_VOLUME_MIN}; clamping`
+      );
+      clamped = MASTER_VOLUME_MIN;
+    }
+    this.masterVolume = clamped;
+    if (!this.masterGain) return;
+    const ctx = this.audioContext;
+    if (!ctx) {
+      this.masterGain.gain.value = clamped;
+      return;
+    }
+    /*
+     * `setTargetAtTime` with a 30 ms time-constant smooths slider drag
+     * into a continuous amplitude curve. A bare `gain.value = x`
+     * produces audible zipper noise on rapid moves because each frame
+     * is a discrete step; the smoothed approach is universally cheap
+     * and the lag is well below the JND for level changes.
+     */
+    this.masterGain.gain.setTargetAtTime(clamped, ctx.currentTime, MASTER_VOLUME_SMOOTHING_SEC);
+  }
+
+  /**
+   * Get the current master output level. Returns the most recently
+   * set (clamped) value, regardless of whether init has run yet.
+   */
+  getMasterVolume(): number {
+    return this.masterVolume;
   }
 
   /**
