@@ -176,6 +176,76 @@ describe("Underscore", () => {
       const client = new Underscore({ apiKey: "us_test_key" });
       await expect(client.loadSynth("cmp_123")).rejects.toThrow("No synths found");
     });
+
+    it("fetches one binary per voice when the synth is an ensemble bundle", async () => {
+      /*
+       * The bundle path replaces the single-fetch step with N fetches,
+       * one per voice. Each voice's scsyndefUrl is loaded into the
+       * audio engine independently so the scheduler can /s_new any
+       * voice on demand. This pin enforces that load order.
+       */
+      const bundleMetadata = {
+        name: "piece_001",
+        description: "A multi-voice piece",
+        params: [],
+        createdAt: "2024-01-01",
+        synthdefUrl: "/api/v1/compositions/cmp_123/synths/piece_001/synthdef",
+        voices: [
+          {
+            name: "bass",
+            scsyndefUrl: "/api/v1/compositions/cmp_123/synths/piece_001/synthdef?voice=bass",
+            params: [
+              {
+                name: "amp",
+                type: "amp",
+                default: 0.4,
+                min: 0,
+                max: 1,
+                description: "Bass volume",
+              },
+            ],
+          },
+          {
+            name: "pad",
+            scsyndefUrl: "/api/v1/compositions/cmp_123/synths/piece_001/synthdef?voice=pad",
+            params: [
+              { name: "amp", type: "amp", default: 0.3, min: 0, max: 1, description: "Pad volume" },
+            ],
+          },
+        ],
+        score: {
+          durationSec: 60,
+          loop: false,
+          events: [],
+        },
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(bundleMetadata),
+      });
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(64)),
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(64)),
+      });
+
+      const client = new Underscore({ apiKey: "us_test_key", baseUrl: "https://api.test.com" });
+      const synth = await client.loadSynth("cmp_123", "piece_001");
+
+      expect(synth.isBundle).toBe(true);
+      expect(synth.voices).toHaveLength(2);
+
+      const synthdefFetches = mockFetch.mock.calls.filter((call) => {
+        const url: string = typeof call[0] === "string" ? call[0] : "";
+        return url.includes("synthdef?voice=");
+      });
+      expect(synthdefFetches).toHaveLength(2);
+    });
   });
 
   describe("audioContext", () => {

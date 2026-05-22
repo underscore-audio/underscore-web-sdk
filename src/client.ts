@@ -3,7 +3,13 @@
  * Handles API key authentication, request/response handling, and schema validation.
  */
 
-import type { SynthSummary, SynthMetadata, Composition, CreateCompositionOptions, CreateCompositionResponse } from "./types.js";
+import type {
+  SynthSummary,
+  SynthMetadata,
+  Composition,
+  CreateCompositionOptions,
+  CreateCompositionResponse,
+} from "./types.js";
 import {
   ListSynthsResponseSchema,
   SynthMetadataSchema,
@@ -120,6 +126,31 @@ export class ApiClient {
     const url = this.getSynthdefUrl(compositionId, synthName);
 
     const response = await fetch(url, {
+      headers: {
+        "Underscore-API-Key": this.apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      throw new ApiError(`Failed to fetch synthdef: ${response.status}`, response.status);
+    }
+
+    return response.arrayBuffer();
+  }
+
+  /**
+   * Fetch a synthdef binary by URL or relative path.
+   *
+   * The bundle voice manifest carries `scsyndefUrl` per voice as a
+   * relative path (e.g. `/api/v1/compositions/<cid>/synths/<name>/synthdef?voice=bass`).
+   * We need to authenticate per-voice fetches the same way the
+   * single-voice path does, but we cannot reuse `fetchSynthdef` because
+   * the URL is already fully constructed by the API.
+   */
+  async fetchSynthdefByUrl(urlOrPath: string): Promise<ArrayBuffer> {
+    const fullUrl = urlOrPath.startsWith("http") ? urlOrPath : `${this.baseUrl}${urlOrPath}`;
+
+    const response = await fetch(fullUrl, {
       headers: {
         "Underscore-API-Key": this.apiKey,
       },

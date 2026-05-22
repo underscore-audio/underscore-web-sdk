@@ -154,8 +154,24 @@ export class Underscore {
       this.log.info("Samples loaded");
     }
 
-    const synthdefData = await this.client.fetchSynthdef(compositionId, name);
-    await this.engine.loadSynthdefFromData(synthdefData);
+    /*
+     * Bundle vs single-voice load. When `metadata.voices` is present the
+     * synth is an ensemble bundle: each voice has its own .scsyndef binary
+     * under `voices[i].scsyndefUrl` and we have to load all of them so the
+     * scheduler can /s_new any voice on demand. When `voices` is absent we
+     * keep the legacy path (one fetch, one engine.loadSynthdefFromData).
+     */
+    if (metadata.voices && metadata.voices.length > 0) {
+      this.log.info(`Loading ${metadata.voices.length} bundle voices...`);
+      for (const voice of metadata.voices) {
+        const voiceData = await this.client.fetchSynthdefByUrl(voice.scsyndefUrl);
+        await this.engine.loadSynthdefFromData(voiceData);
+      }
+      this.log.info("Bundle voices loaded");
+    } else {
+      const synthdefData = await this.client.fetchSynthdef(compositionId, name);
+      await this.engine.loadSynthdefFromData(synthdefData);
+    }
 
     const synth = new Synth(
       this.engine,
@@ -163,7 +179,10 @@ export class Underscore {
       name,
       metadata.description,
       metadata.params,
-      metadata.samples
+      metadata.samples,
+      metadata.voices,
+      metadata.score,
+      metadata.automation
     );
     synth.markLoaded();
 

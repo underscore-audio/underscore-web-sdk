@@ -420,6 +420,53 @@ export class AudioEngine {
   }
 
   /**
+   * Spawn a new instance of a SynthDef with optional initial control args
+   * and return its node id. Used by the bundle scheduler to start each
+   * voice independently. Unlike `play()`, this does NOT free a previous
+   * node or mark the engine as "the playing synth"; the caller (the
+   * bundle Synth) tracks node lifetimes per voice.
+   */
+  async spawnInstance(synthName: string, initialParams?: Record<string, number>): Promise<number> {
+    if (!this.sonic) {
+      throw new AudioError("Audio not initialized. Call init() first.");
+    }
+
+    const ctx = this.sonic.audioContext as AudioContext;
+    if (ctx?.state === "suspended") {
+      await ctx.resume();
+    }
+
+    this.currentNodeId++;
+    const nodeId = this.currentNodeId;
+
+    const args: (string | number)[] = [synthName, nodeId, 0, 0];
+    if (initialParams) {
+      for (const [name, value] of Object.entries(initialParams)) {
+        args.push(name, value);
+      }
+    }
+    this.sonic.send("/s_new", ...args);
+
+    return nodeId;
+  }
+
+  /**
+   * Resume the underlying AudioContext if it is suspended, without
+   * issuing any /s_new. Used for bundle synths whose `play()` is just a
+   * gesture-gated context resume; the actual voice instantiation runs
+   * later via the score scheduler's /s_new events.
+   */
+  async resumeContext(): Promise<void> {
+    if (!this.sonic) {
+      throw new AudioError("Audio not initialized. Call init() first.");
+    }
+    const ctx = this.sonic.audioContext as AudioContext;
+    if (ctx?.state === "suspended") {
+      await ctx.resume();
+    }
+  }
+
+  /**
    * Set a parameter on a specific node (for crossfade control).
    */
   setParamOnNode(nodeId: number, paramName: string, value: number): void {

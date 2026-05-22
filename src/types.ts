@@ -12,7 +12,22 @@ import type {
   CompositionResponse as GeneratedComposition,
   CreateCompositionRequest as GeneratedCreateCompositionOptions,
   CreateCompositionResponse as GeneratedCreateCompositionResponse,
+  VoiceDef as GeneratedVoiceDef,
+  Score as GeneratedScore,
+  ScoreEvent as GeneratedScoreEvent,
+  ScoreAction as GeneratedScoreAction,
+  AutomationTimeline as GeneratedAutomationTimeline,
+  AutomationEvent as GeneratedAutomationEvent,
+  AutomationShape as GeneratedAutomationShape,
 } from "./generated/api-types.js";
+
+export type VoiceDef = GeneratedVoiceDef;
+export type Score = GeneratedScore;
+export type ScoreEvent = GeneratedScoreEvent;
+export type ScoreAction = GeneratedScoreAction;
+export type AutomationTimeline = GeneratedAutomationTimeline;
+export type AutomationEvent = GeneratedAutomationEvent;
+export type AutomationShape = GeneratedAutomationShape;
 
 /**
  * Log level for SDK debug output.
@@ -157,6 +172,11 @@ export interface SynthSummary extends GeneratedSynthSummary {
 
 /**
  * Full synth metadata including samples.
+ *
+ * For ensemble bundles, `voices` and `score` are populated; the legacy
+ * flat `synthdefUrl` mirrors the bundle's first voice for old SDK
+ * clients that don't understand bundles. For single-voice synths,
+ * `voices` and `score` are absent and `synthdefUrl` is the sole binary.
  */
 export interface SynthMetadata extends GeneratedSynthMetadata {
   /** Synth name, unique within a composition. */
@@ -170,6 +190,15 @@ export interface SynthMetadata extends GeneratedSynthMetadata {
 
   /** Optional audio samples used by this synth. */
   samples?: SampleMetadata[];
+
+  /** Optional single-voice automation timeline. */
+  automation?: AutomationTimeline;
+
+  /** Optional ensemble bundle voice manifest (>= 2 voices when present). */
+  voices?: VoiceDef[];
+
+  /** Optional ensemble bundle score (paired with `voices`). */
+  score?: Score;
 
   /** Creation timestamp as an ISO 8601 string. */
   createdAt: string;
