@@ -226,11 +226,12 @@ export class Underscore {
    */
   async *subscribeToGeneration(
     streamUrlOrPath: string,
-    compositionId?: string
+    compositionId?: string,
+    signal?: AbortSignal
   ): AsyncGenerator<GenerationEvent & { synth?: Synth }> {
     const baseUrl = this.config.baseUrl || DEFAULT_API_BASE_URL;
 
-    for await (const event of subscribeToGeneration(streamUrlOrPath, baseUrl)) {
+    for await (const event of subscribeToGeneration(streamUrlOrPath, baseUrl, signal)) {
       if (event.type === "ready" && event.synthName && compositionId) {
         try {
           const synth = await this.loadSynth(compositionId, event.synthName);

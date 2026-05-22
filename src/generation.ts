@@ -86,7 +86,8 @@ export async function startGeneration(
  */
 export async function* subscribeToGeneration(
   streamUrlOrPath: string,
-  baseUrl?: string
+  baseUrl?: string,
+  signal?: AbortSignal
 ): AsyncGenerator<GenerationEvent> {
   if (typeof EventSource === "undefined") {
     throw new Error(
@@ -105,6 +106,31 @@ export async function* subscribeToGeneration(
   let error: Error | null = null;
 
   const eventSource = new EventSource(url);
+
+  /*
+   * Wire the abort signal through so a consumer cleanup (effect
+   * teardown, navigation, watchdog timeout) closes the SSE socket
+   * immediately. Without this, the EventSource stays open and the
+   * generator stays suspended on `await resolveNext`, leaking an
+   * HTTP/1.1 connection slot per stuck subscription.
+   */
+  const onAbort = (): void => {
+    if (done) return;
+    done = true;
+    eventSource.close();
+    if (resolveNext) {
+      const resolve = resolveNext;
+      resolveNext = null;
+      resolve({ value: undefined as unknown as GenerationEvent, done: true });
+    }
+  };
+  if (signal) {
+    if (signal.aborted) {
+      onAbort();
+    } else {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
 
   eventSource.onmessage = (e) => {
     try {
@@ -157,6 +183,9 @@ export async function* subscribeToGeneration(
     }
   } finally {
     eventSource.close();
+    if (signal) {
+      signal.removeEventListener("abort", onAbort);
+    }
   }
 
   if (error) {
