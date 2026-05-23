@@ -63,16 +63,6 @@ export class Underscore {
   private config: UnderscoreConfig;
   private log: Logger;
 
-  /*
-   * Coalesce concurrent loads of the same (compositionId, synthName) pair
-   * onto a single in-flight promise. `loadSynth` revokes the synthdef blob
-   * URL inside `loadSynthdefFromData`, and a second concurrent call would
-   * race the worker fetch against that revocation, leaving one caller
-   * permanently pending. Sharing the promise also avoids redundant network
-   * round-trips and double buffer clears.
-   */
-  private inflightLoad: Map<string, Promise<Synth>> = new Map();
-
   constructor(config: UnderscoreConfig) {
     this.config = config;
     this.log = createLogger("underscore", config.logLevel ?? "none");
@@ -141,18 +131,6 @@ export class Underscore {
    * @param synthName - The synth name (optional, defaults to the latest synth)
    */
   async loadSynth(compositionId: string, synthName?: string): Promise<Synth> {
-    const key = `${compositionId}::${synthName ?? "__latest__"}`;
-    const existing = this.inflightLoad.get(key);
-    if (existing) return existing;
-
-    const promise = this.doLoadSynth(compositionId, synthName).finally(() => {
-      this.inflightLoad.delete(key);
-    });
-    this.inflightLoad.set(key, promise);
-    return promise;
-  }
-
-  private async doLoadSynth(compositionId: string, synthName?: string): Promise<Synth> {
     let name = synthName;
     if (!name) {
       const synths = await this.client.listSynths(compositionId);
