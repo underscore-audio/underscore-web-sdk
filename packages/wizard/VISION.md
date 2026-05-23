@@ -32,27 +32,31 @@ automation.
 
 ```mermaid
 flowchart TD
-    A[npx @underscore-audio/wizard] --> B[Phase 1: Inspect]
-    B --> B1[Detect framework / package manager]
-    B --> B2[Action-surface analyzer]
-    B --> B3[Code-context tags]
-    B1 & B2 & B3 --> C[Phase 2: Auth]
-    C --> C1[Device-code browser flow]
-    C1 --> C2[Mint publishable key]
-    C2 --> D[Phase 3: Plan]
-    D --> D1[Stock synth catalog match]
-    D --> D2[Generate new synth?]
-    D --> D3[Action -> param binding plan]
-    D1 & D2 & D3 --> E[Phase 4: Apply]
-    E --> E1[Diff-preview every mutation]
-    E1 --> E2[Install deps + copy WASM]
-    E2 --> E3[Patch headers + write env]
-    E3 --> E4[Scaffold integration code]
-    E4 --> F[Phase 5: Verify]
-    F --> F1[Run app / typecheck / smoke]
-    F1 --> G{All green?}
-    G -- yes --> H[Done]
-    G -- no --> I[Rollback to pre-Apply state]
+    cli["npx @underscore-audio/wizard"] --> inspect[Inspect Phase]
+    inspect --> auth[Auth Phase device-code]
+    auth --> plan["Plan Phase build proposal"]
+    plan --> confirm{User confirms}
+    confirm -->|yes| apply[Apply Phase patches files]
+    confirm -->|no| revise[Revise / re-plan]
+    revise --> confirm
+    apply --> verify[Verify Phase smoke-test]
+
+    subgraph inspect [Inspect Phase]
+        repoScan[Scan files]
+        frameworkDetect[Detect framework]
+        actionMap[Map user-action surfaces]
+        repoScan --> frameworkDetect --> actionMap
+    end
+
+    subgraph plan [Plan Phase]
+        catalogPick[Pick stock synths]
+        genProposal[Propose generated synths]
+        wiringPlan[Plan integration points]
+        paramBinding[Bind action surfaces to params]
+        catalogPick --> wiringPlan
+        genProposal --> wiringPlan
+        wiringPlan --> paramBinding
+    end
 ```
 
 ## The five phases
@@ -179,17 +183,13 @@ The vision lands incrementally. In order:
 
 ## Open questions
 
-1. **Action-surface signal vs. noise.** How aggressive should the
-   analyzer be? Static analysis can find many click handlers in any
-   non-trivial app; we need a confidence threshold and a "show me
-   more" affordance without overwhelming the plan output.
-2. **Catalog evolution and stability.** Stock catalog entries pin a
-   `cmp_*` / synth name on the hosted backend. What's the right
-   versioning + deprecation policy so a wizard run today still
-   resolves to working sounds a year later when the user re-runs the
-   wizard on the same project?
-3. **Generation cost gating.** Generation costs LLM tokens and ~30–
-   120s per synth. What is the right UX for opting in — explicit
-   confirm only, a budget cap surfaced up front, or a "preview the
-   prompt before paying" dry-run mode? And how does that integrate
-   with non-interactive agent-driven runs?
+1. Should the catalog backend live in the hosted Underscore service
+   (server-rendered list) or in a static CDN (cached JSON)? Tradeoff:
+   CDN is cheaper + immutable; a hosted service gives us auth-aware
+   filtering later.
+2. Bindings runtime as separate packages
+   (`@underscore-audio/react-bindings`,
+   `@underscore-audio/dom-bindings`, etc.) or as part of the main SDK
+   with tree-shaking?
+3. "Context-aware generation" — does the wizard send file _content_
+   (privacy concern) or only repo-derived _tags_ (less useful)?
