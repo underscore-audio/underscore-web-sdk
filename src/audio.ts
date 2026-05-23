@@ -52,12 +52,15 @@ export interface AudioEngineConfig {
   wasmBaseUrl: string;
   workerBaseUrl?: string;
   logger?: Logger;
-  /*
-   * Override the engine init watchdog. Production code should leave this
-   * unset; the only reason it exists is so tests can exercise the timeout
-   * path without sitting on a 10-second timer. Documented but not exposed
-   * through the public Underscore client surface to keep the contract
-   * narrow.
+  /**
+   * Override the engine init watchdog (milliseconds).
+   *
+   * Production code should leave this unset; it exists so tests can
+   * exercise the timeout path without sitting on a 10-second timer.
+   * Not surfaced through the public `Underscore` client to keep that
+   * contract narrow.
+   *
+   * @internal
    */
   initTimeoutMs?: number;
 }
@@ -157,7 +160,12 @@ export class AudioEngine {
       try {
         await this.sonic?.shutdown();
       } catch {
-        // best-effort
+        /*
+         * Older supersonic builds without `shutdown` are tolerated --
+         * the partial instance will be garbage-collected once the
+         * AudioContext slot is released by the next gesture-driven
+         * retry's fresh `new SuperSonic()`.
+         */
       }
       this.sonic = null;
       throw err;
@@ -603,43 +611,6 @@ export class AudioEngine {
       this.sonic.send("/n_free", this.outgoingNodeId);
       this.outgoingNodeId = null;
     }
-  }
-
-  /**
-   * Play a synth with initial amp=0 (for manual crossfade control).
-   */
-  async playMuted(synthName: string): Promise<number> {
-    if (!this.sonic) {
-      throw new AudioError("Audio not initialized. Call init() first.");
-    }
-
-    const ctx = this.sonic.audioContext as AudioContext;
-    if (ctx?.state === "suspended") {
-      await ctx.resume();
-    }
-
-    this.currentNodeId++;
-    const nodeId = this.currentNodeId;
-
-    this.sonic.send("/s_new", synthName, nodeId, 0, 0, "amp", 0);
-
-    return nodeId;
-  }
-
-  /**
-   * Set a parameter on a specific node (for crossfade control).
-   */
-  setParamOnNode(nodeId: number, paramName: string, value: number): void {
-    if (!this.sonic) return;
-    this.sonic.send("/n_set", nodeId, paramName, value);
-  }
-
-  /**
-   * Free a specific node.
-   */
-  freeNode(nodeId: number): void {
-    if (!this.sonic) return;
-    this.sonic.send("/n_free", nodeId);
   }
 
   private sleep(ms: number): Promise<void> {
