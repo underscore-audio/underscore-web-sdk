@@ -10,11 +10,25 @@ import type { ParamMetadata, SampleMetadata } from "./types.js";
 describe("Synth", () => {
   let mockEngine: AudioEngine;
   let synth: Synth;
-  
+
   const testParams: ParamMetadata[] = [
     { name: "amp", type: "amp", default: 0.5, min: 0, max: 1, description: "Volume" },
-    { name: "cutoff", type: "freq", default: 1000, min: 20, max: 20000, description: "Filter cutoff" },
-    { name: "resonance", type: "factor", default: 0.3, min: 0, max: 1, description: "Filter resonance" },
+    {
+      name: "cutoff",
+      type: "freq",
+      default: 1000,
+      min: 20,
+      max: 20000,
+      description: "Filter cutoff",
+    },
+    {
+      name: "resonance",
+      type: "factor",
+      default: 0.3,
+      min: 0,
+      max: 1,
+      description: "Filter resonance",
+    },
   ];
 
   const testSamples: SampleMetadata[] = [
@@ -45,13 +59,7 @@ describe("Synth", () => {
       isCrossfading: vi.fn().mockReturnValue(false),
     } as unknown as AudioEngine;
 
-    synth = new Synth(
-      mockEngine,
-      "cmp_test123",
-      "warm_pad",
-      "A warm analog pad sound",
-      testParams
-    );
+    synth = new Synth(mockEngine, "cmp_test123", "warm_pad", "A warm analog pad sound", testParams);
   });
 
   describe("properties", () => {
@@ -166,7 +174,10 @@ describe("Synth", () => {
 
   describe("getAllParams()", () => {
     it("delegates to engine", () => {
-      (mockEngine.getAllParams as ReturnType<typeof vi.fn>).mockReturnValue({ amp: 0.7, cutoff: 1500 });
+      (mockEngine.getAllParams as ReturnType<typeof vi.fn>).mockReturnValue({
+        amp: 0.7,
+        cutoff: 1500,
+      });
       expect(synth.getAllParams()).toEqual({ amp: 0.7, cutoff: 1500 });
     });
   });
@@ -194,9 +205,9 @@ describe("Synth", () => {
       const listener = vi.fn();
       const mockUnsubscribe = vi.fn();
       (mockEngine.subscribe as ReturnType<typeof vi.fn>).mockReturnValue(mockUnsubscribe);
-      
+
       const unsubscribe = synth.subscribe(listener);
-      
+
       expect(mockEngine.subscribe).toHaveBeenCalledWith(listener);
       expect(unsubscribe).toBe(mockUnsubscribe);
     });
@@ -273,7 +284,16 @@ describe("Synth", () => {
         "cmp_test123",
         "no_amp",
         "A synth without amp param",
-        [{ name: "cutoff", type: "freq", default: 1000, min: 20, max: 20000, description: "Filter cutoff" }]
+        [
+          {
+            name: "cutoff",
+            type: "freq",
+            default: 1000,
+            min: 20,
+            max: 20000,
+            description: "Filter cutoff",
+          },
+        ]
       );
       noAmpSynth.markLoaded();
       await noAmpSynth.crossfadeIn();

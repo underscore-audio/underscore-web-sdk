@@ -3,7 +3,13 @@
  * Handles API key authentication, request/response handling, and schema validation.
  */
 
-import type { SynthSummary, SynthMetadata, Composition, CreateCompositionOptions, CreateCompositionResponse } from "./types.js";
+import type {
+  SynthSummary,
+  SynthMetadata,
+  Composition,
+  CreateCompositionOptions,
+  CreateCompositionResponse,
+} from "./types.js";
 import {
   ListSynthsResponseSchema,
   SynthMetadataSchema,
