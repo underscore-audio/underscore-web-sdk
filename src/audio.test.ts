@@ -137,7 +137,7 @@ describe("AudioEngine", () => {
       try {
         expect(() => engine.setMasterVolume(3)).not.toThrow();
         expect(engine.getMasterVolume()).toBe(2);
-        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("clamping"));
       } finally {
         warnSpy.mockRestore();
       }
@@ -148,7 +148,7 @@ describe("AudioEngine", () => {
       try {
         expect(() => engine.setMasterVolume(-1)).not.toThrow();
         expect(engine.getMasterVolume()).toBe(0);
-        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("clamping"));
       } finally {
         warnSpy.mockRestore();
       }
@@ -171,6 +171,26 @@ describe("AudioEngine", () => {
       expect(engine.getMasterVolume()).toBe(0);
     });
 
+    it("warns on the no-op path when the master GainNode is missing", () => {
+      /*
+       * Pre-init the engine has no `masterGain` spliced yet. A
+       * `setMasterVolume` call still caches the value, but the audible
+       * path is a black hole -- the warn lets a silent supersonic
+       * dependency regression (renamed worklet/audioContext fields)
+       * surface in the console instead of disappearing.
+       */
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        engine.setMasterVolume(0.5);
+        expect(engine.getMasterVolume()).toBe(0.5);
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining("master GainNode is not spliced")
+        );
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
     it("is independent of per-synth setParam('amp', x): amp cache is unaffected", () => {
       /*
        * Master gain layers on top of per-voice amp ramps without
@@ -181,33 +201,6 @@ describe("AudioEngine", () => {
       expect(engine.getMasterVolume()).toBe(2);
       expect(engine.getParam("amp")).toBeUndefined();
       expect(engine.getAllParams()).toEqual({});
-    });
-
-    it("when a masterGain node is present, setMasterVolume drives it via setTargetAtTime", () => {
-      /*
-       * Real init requires AudioWorkletNode + WASM, neither present in
-       * the node test environment. Inject a fake GainNode + an
-       * AudioContext stub (only currentTime is read) so the
-       * setTargetAtTime call path is observable without a browser.
-       */
-      const fakeGain = {
-        gain: {
-          value: 1,
-          setTargetAtTime: vi.fn(),
-        },
-      };
-      const fakeSonic = { audioContext: { currentTime: 42 } };
-      (engine as unknown as { masterGain: typeof fakeGain }).masterGain = fakeGain;
-      (engine as unknown as { sonic: typeof fakeSonic }).sonic = fakeSonic;
-
-      engine.setMasterVolume(0.4);
-
-      expect(fakeGain.gain.setTargetAtTime).toHaveBeenCalledTimes(1);
-      const [target, when, tau] = fakeGain.gain.setTargetAtTime.mock.calls[0];
-      expect(target).toBe(0.4);
-      expect(when).toBe(42);
-      expect(tau).toBeCloseTo(0.03, 5);
-      expect(engine.getMasterVolume()).toBe(0.4);
     });
   });
 

@@ -360,10 +360,21 @@ export class AudioEngine {
       clamped = MASTER_VOLUME_MIN;
     }
     this.masterVolume = clamped;
-    if (!this.masterGain) return;
-    const ctx = this.audioContext;
-    if (!ctx) {
-      this.masterGain.gain.value = clamped;
+    if (!this.masterGain) {
+      /*
+       * The master GainNode is spliced in during `init()` by reaching
+       * through Supersonic's private `workletNode`/`audioContext`. If
+       * Supersonic ever renames or restructures those fields the splice
+       * silently no-ops and `setMasterVolume` becomes a black hole.
+       * Warn loudly so the regression surfaces in user reports. The
+       * long-term fix is a public setMasterGain API in supersonic-scsynth.
+       */
+      console.warn(
+        "[underscore-sdk] setMasterVolume called but master GainNode is not " +
+          "spliced; value is cached and will apply once init() succeeds. If " +
+          "this persists after init(), the audio engine's worklet shape may " +
+          "have changed."
+      );
       return;
     }
     /*
@@ -372,8 +383,17 @@ export class AudioEngine {
      * produces audible zipper noise on rapid moves because each frame
      * is a discrete step; the smoothed approach is universally cheap
      * and the lag is well below the JND for level changes.
+     *
+     * The GainNode's own `context` is the source of truth for
+     * `currentTime` here -- it is by construction the same context
+     * the worklet is wired into and cannot be null while the node
+     * exists, so no extra null check is needed.
      */
-    this.masterGain.gain.setTargetAtTime(clamped, ctx.currentTime, MASTER_VOLUME_SMOOTHING_SEC);
+    this.masterGain.gain.setTargetAtTime(
+      clamped,
+      this.masterGain.context.currentTime,
+      MASTER_VOLUME_SMOOTHING_SEC
+    );
   }
 
   /**

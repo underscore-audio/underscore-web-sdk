@@ -101,7 +101,7 @@ export async function* subscribeToGeneration(
     : `${baseUrl ?? ""}${streamUrlOrPath}`;
 
   const events: GenerationEvent[] = [];
-  let resolveNext: ((value: IteratorResult<GenerationEvent>) => void) | null = null;
+  let resolveNext: ((value: IteratorResult<GenerationEvent, undefined>) => void) | null = null;
   let done = false;
   let error: Error | null = null;
 
@@ -121,7 +121,7 @@ export async function* subscribeToGeneration(
     if (resolveNext) {
       const resolve = resolveNext;
       resolveNext = null;
-      resolve({ value: undefined as unknown as GenerationEvent, done: true });
+      resolve({ value: undefined, done: true });
     }
   };
   if (signal) {
@@ -173,7 +173,7 @@ export async function* subscribeToGeneration(
       if (events.length > 0) {
         yield events.shift()!;
       } else if (!done) {
-        const result = await new Promise<IteratorResult<GenerationEvent>>((resolve) => {
+        const result = await new Promise<IteratorResult<GenerationEvent, undefined>>((resolve) => {
           resolveNext = resolve;
         });
         if (!result.done) {
@@ -235,7 +235,7 @@ interface BackendEvent {
 
 /*
  * Map server SSE event types to the SDK's minimal GenerationEvent union.
- * The server's stream.ts always normalizes `llm.*` events to these short
+ * The backend SSE handler always normalizes `llm.*` events to these short
  * names before emitting to clients, so we do not need to handle `llm.*`
  * variants here. Unmapped events are surfaced as `{ type: "raw" }` so
  * power users can introspect the full protocol without SDK changes.
