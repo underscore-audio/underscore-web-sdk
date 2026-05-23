@@ -32,5 +32,6 @@ declare module "supersonic-scsynth" {
     loadSample(bufferNum: number, url: string): Promise<void>;
     sync(): Promise<void>;
     send(command: string, ...args: (string | number)[]): void;
+    shutdown(): Promise<void>;
   }
 }

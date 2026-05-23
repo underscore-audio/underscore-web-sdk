@@ -33,10 +33,33 @@ const MASTER_VOLUME_DEFAULT = 1.0;
  */
 const MASTER_VOLUME_SMOOTHING_SEC = 0.03;
 
+/*
+ * Watchdog ceiling for engine init.
+ *
+ * supersonic-scsynth's init waits for `AudioContext.getOutputTimestamp()
+ * .contextTime > 0` with no timeout. `contextTime` only advances after
+ * the AudioContext transitions from `suspended` to `running`, which
+ * requires a user gesture under every major browser's autoplay policy.
+ * Without this watchdog, calling `init()` before any user gesture leaves
+ * the SDK in a permanent pending state with no error, no log, and no
+ * way for the consumer to recover. 10 s comfortably absorbs a slow WASM
+ * fetch while still failing loudly when the autoplay policy is the
+ * blocker.
+ */
+const INIT_TIMEOUT_MS = 10_000;
+
 export interface AudioEngineConfig {
   wasmBaseUrl: string;
   workerBaseUrl?: string;
   logger?: Logger;
+  /*
+   * Override the engine init watchdog. Production code should leave this
+   * unset; the only reason it exists is so tests can exercise the timeout
+   * path without sitting on a 10-second timer. Documented but not exposed
+   * through the public Underscore client surface to keep the contract
+   * narrow.
+   */
+  initTimeoutMs?: number;
 }
 
 export class AudioEngine {
@@ -85,15 +108,62 @@ export class AudioEngine {
 
   /**
    * Initialize the audio engine.
-   * Must be called before playing synths.
-   * Should be called from a user interaction (click/tap) due to browser autoplay policies.
+   * Must be called from a user interaction (click/tap) due to browser autoplay policies.
+   *
+   * If the underlying audio engine does not finish initializing within
+   * {@link INIT_TIMEOUT_MS}, the returned promise rejects with an
+   * {@link AudioError} that explains the gesture requirement. The internal
+   * init state is cleared on rejection so a retry from inside a real
+   * gesture handler starts fresh; without this clear, an early pre-gesture
+   * call would poison every subsequent attempt with the same hung promise.
    */
   async init(): Promise<void> {
     if (this.sonic) return;
     if (this.initPromise) return this.initPromise;
 
-    this.initPromise = this.doInit();
+    this.initPromise = this.initWithWatchdog().catch((err) => {
+      this.initPromise = null;
+      throw err;
+    });
     return this.initPromise;
+  }
+
+  private async initWithWatchdog(): Promise<void> {
+    const timeoutMs = this.config.initTimeoutMs ?? INIT_TIMEOUT_MS;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        reject(
+          new AudioError(
+            `Audio engine init() did not complete within ${timeoutMs}ms. ` +
+              `This usually means the AudioContext is still suspended -- ` +
+              `browser autoplay policy requires init() to be called from a ` +
+              `user gesture handler (click, tap, keydown).`
+          )
+        );
+      }, timeoutMs);
+    });
+
+    try {
+      await Promise.race([this.doInit(), timeoutPromise]);
+    } catch (err) {
+      /*
+       * On timeout the partially-constructed SuperSonic instance is still
+       * polling its suspended AudioContext. Tear it down so the
+       * AudioContext slot is released (browsers cap them at ~6 per page)
+       * and the next gesture-driven retry can start cleanly. Best-effort
+       * -- supersonic versions that lack `shutdown` are tolerated.
+       */
+      try {
+        await this.sonic?.shutdown();
+      } catch {
+        // best-effort
+      }
+      this.sonic = null;
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private async doInit(): Promise<void> {
