@@ -133,6 +133,49 @@ describe("generation", () => {
     });
   });
 
+  describe("subscribeToGeneration early-abort short-circuit", () => {
+    /*
+     * Documented contract: a signal that is already aborted at call
+     * time short-circuits the generator without allocating an
+     * EventSource. Worth pinning explicitly because the wrong place to
+     * check `signal.aborted` (after `new EventSource(url)`) opens a
+     * socket only to immediately close it -- harmless but a real cost
+     * in tight effect-cleanup loops.
+     */
+    it("does not construct an EventSource when the signal is already aborted", async () => {
+      const ctorSpy = vi.fn();
+      class TrackingEventSource {
+        url: string;
+        onmessage: ((e: MessageEvent) => void) | null = null;
+        onerror: ((e: Event) => void) | null = null;
+        close = vi.fn();
+        addEventListener = vi.fn();
+        removeEventListener = vi.fn();
+        constructor(url: string) {
+          ctorSpy(url);
+          this.url = url;
+        }
+      }
+      const original = globalThis.EventSource;
+      vi.stubGlobal("EventSource", TrackingEventSource);
+      try {
+        const controller = new AbortController();
+        controller.abort();
+
+        const { subscribeToGeneration } = await import("./generation.js");
+        const iter = subscribeToGeneration("https://api.test.com/api/stream/cmp/job", {
+          signal: controller.signal,
+        });
+
+        const first = await iter.next();
+        expect(first.done).toBe(true);
+        expect(ctorSpy).not.toHaveBeenCalled();
+      } finally {
+        vi.stubGlobal("EventSource", original);
+      }
+    });
+  });
+
   describe("mapBackendEvent", () => {
     it("maps thinking events", async () => {
       const { mapBackendEvent } = await import("./generation.js");

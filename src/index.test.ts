@@ -214,7 +214,9 @@ describe("Underscore", () => {
       });
 
       const client = new Underscore({ apiKey: "us_pub_test" });
-      const iter = client.subscribeToGeneration("/api/stream/cmp_123/job_abc", "cmp_123");
+      const iter = client.subscribeToGeneration("/api/stream/cmp_123/job_abc", {
+        compositionId: "cmp_123",
+      });
       const firstPromise = iter.next();
       await nextTick();
 
@@ -242,7 +244,9 @@ describe("Underscore", () => {
       });
 
       const client = new Underscore({ apiKey: "us_pub_test" });
-      const iter = client.subscribeToGeneration("/api/stream/cmp_123/job_abc", "cmp_123");
+      const iter = client.subscribeToGeneration("/api/stream/cmp_123/job_abc", {
+        compositionId: "cmp_123",
+      });
       const firstPromise = iter.next();
       await nextTick();
 
