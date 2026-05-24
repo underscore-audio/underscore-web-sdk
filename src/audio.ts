@@ -202,18 +202,27 @@ export class AudioEngine {
 
   /**
    * Load a synthdef from binary data.
+   *
+   * Encoded as a `data:` URL rather than a `blob:` URL because the
+   * underlying audio engine probes resources with a `HEAD` request
+   * before fetching, and Chromium rejects HEAD on `blob:` URLs with
+   * `ERR_METHOD_NOT_SUPPORTED`. Synthdefs are small (~5-10 KB), so
+   * the ~33% base64 overhead is negligible compared to the network
+   * round-trip we just avoided. Data URLs also need no revocation,
+   * sidestepping the race between `URL.revokeObjectURL` and the
+   * engine's async fetch.
    */
   async loadSynthdefFromData(data: ArrayBuffer): Promise<void> {
     await this.init();
 
-    const blob = new Blob([data], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-
-    try {
-      await this.sonic!.loadSynthDef(url);
-    } finally {
-      URL.revokeObjectURL(url);
+    const bytes = new Uint8Array(data);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
     }
+    const url = `data:application/octet-stream;base64,${btoa(binary)}`;
+
+    await this.sonic!.loadSynthDef(url);
   }
 
   /**
