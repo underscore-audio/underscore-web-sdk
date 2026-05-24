@@ -8,45 +8,14 @@
 import type { SynthState, SynthStateListener, SampleMetadata } from "./types.js";
 import type { SuperSonic } from "supersonic-scsynth";
 import { type Logger, noopLogger } from "./debug.js";
-import { AudioError, ValidationError } from "./errors.js";
-
-/*
- * Master volume ceiling rationale.
- *
- * Every voice the SDK plays ends in `Limiter.ar(sig * amp, 0.5, 0.01)`
- * with per-UGen `mul <= 0.15`, so a single voice peaks at ~0.5 of
- * WebAudio full-scale (~-6 dBFS). A master gain of 2.0 brings the
- * limited peaks up to 1.0 (the WebAudio clip ceiling). Above 2.0 we'd
- * be clipping audibly even on already-limiter-clamped content, which
- * is never what we want -- cap there and warn rather than letting
- * consumers ship a distorted output by mistake.
- */
-const MASTER_VOLUME_MAX = 2.0;
-const MASTER_VOLUME_MIN = 0;
-const MASTER_VOLUME_DEFAULT = 1.0;
-
-/*
- * 30 ms is well below the perceptual fusion floor for amplitude
- * changes but long enough to smear the discrete steps produced by a
- * UI slider into a continuous ramp, so the user hears the level
- * change as a single smooth motion instead of a zipper.
- */
-const MASTER_VOLUME_SMOOTHING_SEC = 0.03;
-
-/*
- * Watchdog ceiling for engine init.
- *
- * supersonic-scsynth's init waits for `AudioContext.getOutputTimestamp()
- * .contextTime > 0` with no timeout. `contextTime` only advances after
- * the AudioContext transitions from `suspended` to `running`, which
- * requires a user gesture under every major browser's autoplay policy.
- * Without this watchdog, calling `init()` before any user gesture leaves
- * the SDK in a permanent pending state with no error, no log, and no
- * way for the consumer to recover. 10 s comfortably absorbs a slow WASM
- * fetch while still failing loudly when the autoplay policy is the
- * blocker.
- */
-const INIT_TIMEOUT_MS = 10_000;
+import { AudioError } from "./errors.js";
+import {
+  MASTER_VOLUME_DEFAULT,
+  MASTER_VOLUME_SMOOTHING_SEC,
+  clampMasterVolume,
+  spliceMasterGain,
+} from "./audio/master-volume.js";
+import { INIT_TIMEOUT_MS, createInitTimeout } from "./audio/init-watchdog.js";
 
 export interface AudioEngineConfig {
   wasmBaseUrl: string;
@@ -132,20 +101,9 @@ export class AudioEngine {
   }
 
   private async initWithWatchdog(): Promise<void> {
-    const timeoutMs = this.config.initTimeoutMs ?? INIT_TIMEOUT_MS;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        reject(
-          new AudioError(
-            `Audio engine init() did not complete within ${timeoutMs}ms. ` +
-              `This usually means the AudioContext is still suspended -- ` +
-              `browser autoplay policy requires init() to be called from a ` +
-              `user gesture handler (click, tap, keydown).`
-          )
-        );
-      }, timeoutMs);
-    });
+    const { timeoutPromise, cancel } = createInitTimeout(
+      this.config.initTimeoutMs ?? INIT_TIMEOUT_MS
+    );
 
     try {
       await Promise.race([this.doInit(), timeoutPromise]);
@@ -170,7 +128,7 @@ export class AudioEngine {
       this.sonic = null;
       throw err;
     } finally {
-      if (timer) clearTimeout(timer);
+      cancel();
     }
   }
 
@@ -224,56 +182,8 @@ export class AudioEngine {
       return;
     }
 
-    this.spliceMasterGain(sonic);
+    this.masterGain = spliceMasterGain(sonic, this.masterVolume);
     this.notify();
-  }
-
-  /*
-   * Splice a single GainNode between the scsynth AudioWorklet and the
-   * AudioContext destination so consumers can adjust output level at
-   * the bus level without touching per-voice `amp`. Supersonic wires
-   * the worklet directly to `destination` during its own init, so we
-   * disconnect, then re-route worklet -> masterGain -> destination.
-   * `gain.value` is initialized to the cached `masterVolume` so a
-   * `setMasterVolume` call made before init is honored once the
-   * graph exists.
-   *
-   * `workletNode` is a private Supersonic field, so we type the access
-   * through the local d.ts (`SuperSonic.workletNode`) to keep the
-   * cast surface tiny: if Supersonic ever renames or drops that field
-   * the SDK build breaks at the call site instead of silently shipping
-   * a bypassed master bus. The runtime null-check still warns at init
-   * time so an unexpected null at runtime (e.g. older supersonic
-   * version that hasn't populated the field yet) is also visible.
-   */
-  private spliceMasterGain(sonic: SuperSonic): void {
-    const ctx = sonic.audioContext;
-    const workletNode = sonic.workletNode;
-    if (!ctx || !workletNode) {
-      console.warn(
-        "[underscore-sdk] master GainNode splice skipped: " +
-          "supersonic-scsynth did not expose audioContext/workletNode " +
-          "after init(). Audio will play but setMasterVolume will be a no-op. " +
-          "This usually means supersonic-scsynth changed its internal shape; " +
-          "open an SDK issue with your supersonic-scsynth version."
-      );
-      return;
-    }
-    this.masterGain = ctx.createGain();
-    this.masterGain.gain.value = this.masterVolume;
-    try {
-      workletNode.disconnect(ctx.destination);
-    } catch {
-      /*
-       * Older Supersonic builds may already have failed the original
-       * destination connect, or may have wired the worklet through a
-       * different node. A best-effort disconnect followed by an
-       * explicit re-connect is correct in either case; we never want
-       * a routing exception to break engine init.
-       */
-    }
-    workletNode.connect(this.masterGain);
-    this.masterGain.connect(ctx.destination);
   }
 
   /**
@@ -464,23 +374,9 @@ export class AudioEngine {
    * indicate a UI bug a consumer should surface, not silently smooth.
    */
   setMasterVolume(value: number): void {
-    if (!Number.isFinite(value)) {
-      throw new ValidationError(
-        `setMasterVolume(value) requires a finite number, got ${value}`,
-        []
-      );
-    }
-    let clamped = value;
-    if (value > MASTER_VOLUME_MAX) {
-      console.warn(
-        `[underscore-sdk] setMasterVolume(${value}) above ceiling ${MASTER_VOLUME_MAX}; clamping`
-      );
-      clamped = MASTER_VOLUME_MAX;
-    } else if (value < MASTER_VOLUME_MIN) {
-      console.warn(
-        `[underscore-sdk] setMasterVolume(${value}) below floor ${MASTER_VOLUME_MIN}; clamping`
-      );
-      clamped = MASTER_VOLUME_MIN;
+    const { value: clamped, warning } = clampMasterVolume(value);
+    if (warning) {
+      console.warn(warning);
     }
     this.masterVolume = clamped;
     if (!this.masterGain) {
