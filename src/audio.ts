@@ -179,12 +179,22 @@ export class AudioEngine {
 
     const workerBaseUrl = this.config.workerBaseUrl || `${this.config.wasmBaseUrl}workers/`;
 
-    this.sonic = new SuperSonic({
+    /*
+     * Hold the freshly-constructed instance in a local. After the
+     * `await sonic.init(...)` below, the watchdog timeout may have
+     * already won the race and detached `this.sonic` (setting it to
+     * null in the catch arm of initWithWatchdog). Using a local
+     * reference for the rest of doInit keeps the splice safe against
+     * that race, and the `this.sonic !== sonic` check at the resume
+     * point is the explicit late-resolve bailout.
+     */
+    const sonic = new SuperSonic({
       workerBaseURL: workerBaseUrl,
       wasmBaseURL: `${this.config.wasmBaseUrl}wasm/`,
     });
+    this.sonic = sonic;
 
-    await this.sonic.init({
+    await sonic.init({
       scsynthOptions: {
         numBuffers: 256,
         realTimeMemorySize: 8192,
@@ -195,41 +205,75 @@ export class AudioEngine {
       },
     });
 
-    /*
-     * Splice a single GainNode between the scsynth AudioWorklet and the
-     * AudioContext destination so consumers can adjust output level at
-     * the bus level without touching per-voice `amp`. Supersonic wires
-     * the worklet directly to `destination` during its own init, so we
-     * disconnect, then re-route worklet -> masterGain -> destination.
-     * `gain.value` is initialized to the cached `masterVolume` so a
-     * `setMasterVolume` call made before init is honored once the
-     * graph exists.
-     */
-    const sonicAny = this.sonic as unknown as {
-      workletNode: AudioNode | null;
-      audioContext: AudioContext | null;
-    };
-    const ctx = sonicAny.audioContext;
-    const workletNode = sonicAny.workletNode;
-    if (ctx && workletNode) {
-      this.masterGain = ctx.createGain();
-      this.masterGain.gain.value = this.masterVolume;
+    if (this.sonic !== sonic) {
+      /*
+       * Watchdog timeout already fired and detached this instance
+       * while we were awaiting `sonic.init()`. The initWithWatchdog
+       * catch arm already attempted a shutdown, but that ran while
+       * the init promise was still pending and may not have
+       * released everything sonic allocated as it finished resolving.
+       * A second best-effort shutdown closes that window; we then
+       * exit silently so the caller's rejection (already thrown by
+       * the watchdog) is the only observable outcome.
+       */
       try {
-        workletNode.disconnect(ctx.destination);
+        await sonic.shutdown();
       } catch {
-        /*
-         * Older Supersonic builds may already have failed the original
-         * destination connect, or may have wired the worklet through a
-         * different node. A best-effort disconnect followed by an
-         * explicit re-connect is correct in either case; we never want
-         * a routing exception to break engine init.
-         */
+        /* older builds without `shutdown`: tolerated */
       }
-      workletNode.connect(this.masterGain);
-      this.masterGain.connect(ctx.destination);
+      return;
     }
 
+    this.spliceMasterGain(sonic);
     this.notify();
+  }
+
+  /*
+   * Splice a single GainNode between the scsynth AudioWorklet and the
+   * AudioContext destination so consumers can adjust output level at
+   * the bus level without touching per-voice `amp`. Supersonic wires
+   * the worklet directly to `destination` during its own init, so we
+   * disconnect, then re-route worklet -> masterGain -> destination.
+   * `gain.value` is initialized to the cached `masterVolume` so a
+   * `setMasterVolume` call made before init is honored once the
+   * graph exists.
+   *
+   * `workletNode` is a private Supersonic field, so we type the access
+   * through the local d.ts (`SuperSonic.workletNode`) to keep the
+   * cast surface tiny: if Supersonic ever renames or drops that field
+   * the SDK build breaks at the call site instead of silently shipping
+   * a bypassed master bus. The runtime null-check still warns at init
+   * time so an unexpected null at runtime (e.g. older supersonic
+   * version that hasn't populated the field yet) is also visible.
+   */
+  private spliceMasterGain(sonic: SuperSonic): void {
+    const ctx = sonic.audioContext;
+    const workletNode = sonic.workletNode;
+    if (!ctx || !workletNode) {
+      console.warn(
+        "[underscore-sdk] master GainNode splice skipped: " +
+          "supersonic-scsynth did not expose audioContext/workletNode " +
+          "after init(). Audio will play but setMasterVolume will be a no-op. " +
+          "This usually means supersonic-scsynth changed its internal shape; " +
+          "open an SDK issue with your supersonic-scsynth version."
+      );
+      return;
+    }
+    this.masterGain = ctx.createGain();
+    this.masterGain.gain.value = this.masterVolume;
+    try {
+      workletNode.disconnect(ctx.destination);
+    } catch {
+      /*
+       * Older Supersonic builds may already have failed the original
+       * destination connect, or may have wired the worklet through a
+       * different node. A best-effort disconnect followed by an
+       * explicit re-connect is correct in either case; we never want
+       * a routing exception to break engine init.
+       */
+    }
+    workletNode.connect(this.masterGain);
+    this.masterGain.connect(ctx.destination);
   }
 
   /**
