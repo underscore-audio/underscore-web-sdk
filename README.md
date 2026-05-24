@@ -399,6 +399,24 @@ variables and skips cleanly when credentials are absent. See
 [CONTRIBUTING.md](./CONTRIBUTING.md) for the full variable list and the
 maintainer-only CI live-test setup.
 
+### Or via `make`
+
+A `Makefile` is provided as a parallel surface — handy if you work
+across multiple repos that share the same conventional verbs:
+
+```bash
+make setup     # npm install (root + packages/wizard)
+make build     # build SDK and wizard
+make test      # SDK mocked + wizard mocked + live (live skips without creds)
+make lint      # lint SDK and wizard
+make fmt       # prettier --write .
+make clean     # remove dist/ and packages/wizard/dist/
+```
+
+`npm` is the canonical surface for external contributors; the make
+targets just forward to the same scripts and keep day-to-day commands
+identical across sibling projects.
+
 ## Contributing
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md).
