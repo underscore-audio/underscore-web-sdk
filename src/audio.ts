@@ -318,10 +318,11 @@ export class AudioEngine {
 
     /*
      * Validate URLs up-front, before any audio init work. Samples must
-     * carry a fetchable `url` (typically a signed S3 URL from the SDK
-     * synth endpoint). Silently skipping a sample with no URL would hide
-     * a real API/SDK contract break -- the synth would load but be silent
-     * with no obvious cause. Raise loudly so the caller notices.
+     * carry a fetchable `url` (a signed download URL returned by the
+     * Underscore API). Silently skipping a sample with no URL would
+     * hide a real API/SDK contract break -- the synth would load but
+     * be silent with no obvious cause. Raise loudly so the caller
+     * notices.
      */
     const missingUrl = samples.find((s) => !s.url);
     if (missingUrl) {
