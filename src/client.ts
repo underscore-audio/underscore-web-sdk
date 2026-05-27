@@ -3,7 +3,13 @@
  * Handles API key authentication, request/response handling, and schema validation.
  */
 
-import type { SynthSummary, SynthMetadata, Composition, CreateCompositionOptions, CreateCompositionResponse } from "./types.js";
+import type {
+  SynthSummary,
+  SynthMetadata,
+  Composition,
+  CreateCompositionOptions,
+  CreateCompositionResponse,
+} from "./types.js";
 import {
   ListSynthsResponseSchema,
   SynthMetadataSchema,
@@ -107,17 +113,10 @@ export class ApiClient {
   }
 
   /**
-   * Get the URL for downloading a synthdef.
-   */
-  getSynthdefUrl(compositionId: string, synthName: string): string {
-    return `${this.baseUrl}/api/v1/compositions/${compositionId}/synths/${synthName}/synthdef`;
-  }
-
-  /**
    * Fetch synthdef binary data.
    */
   async fetchSynthdef(compositionId: string, synthName: string): Promise<ArrayBuffer> {
-    const url = this.getSynthdefUrl(compositionId, synthName);
+    const url = `${this.baseUrl}/api/v1/compositions/${compositionId}/synths/${synthName}/synthdef`;
 
     const response = await fetch(url, {
       headers: {

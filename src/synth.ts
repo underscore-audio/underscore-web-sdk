@@ -6,8 +6,9 @@
  */
 
 import type { AudioEngine } from "./audio.js";
-import type { ParamMetadata, SynthStateListener, SampleMetadata } from "./types.js";
+import type { ParamMetadata, SynthStateListener, SampleMetadata, SynthScore } from "./types.js";
 import { SynthError } from "./errors.js";
+import { ScoreScheduler } from "./score-scheduler.js";
 
 export class Synth {
   private engine: AudioEngine;
@@ -16,7 +17,15 @@ export class Synth {
   private _description: string;
   private _params: ParamMetadata[];
   private _samples?: SampleMetadata[];
+  private _score?: SynthScore;
   private _loaded: boolean = false;
+  /*
+   * The scheduler is owned by the Synth (rather than the AudioEngine)
+   * because each Synth instance binds to one score. The engine stays
+   * general-purpose; consumers that don't need score playback see
+   * exactly the same engine surface as before.
+   */
+  private scheduler = new ScoreScheduler();
 
   constructor(
     engine: AudioEngine,
@@ -24,7 +33,8 @@ export class Synth {
     synthName: string,
     description: string,
     params: ParamMetadata[],
-    samples?: SampleMetadata[]
+    samples?: SampleMetadata[],
+    score?: SynthScore
   ) {
     this.engine = engine;
     this._compositionId = compositionId;
@@ -32,6 +42,7 @@ export class Synth {
     this._description = description;
     this._params = params;
     this._samples = samples;
+    this._score = score;
   }
 
   /**
@@ -70,6 +81,14 @@ export class Synth {
   }
 
   /**
+   * Optional score that performs this synth over time. Walked by
+   * the scheduler on `play()`; cancelled on `stop()`.
+   */
+  get score(): SynthScore | undefined {
+    return this._score;
+  }
+
+  /**
    * Whether the synth has audio samples.
    */
   get hasSamples(): boolean {
@@ -91,21 +110,34 @@ export class Synth {
   }
 
   /**
-   * Play the synth.
-   * Throws if not loaded.
+   * Play the synth. Throws if not loaded.
+   *
+   * If this synth has a `score`, the scheduler starts automatically
+   * once the synth is up. Each event fires `setParams` on the
+   * running node at its `tMs` offset. `stop()` cancels the
+   * scheduler along with the synth node.
    */
   async play(): Promise<void> {
     if (!this._loaded) {
       throw new SynthError("Synth not loaded. Call Underscore.loadSynth() first.");
     }
 
+    this.scheduler.cancel();
     await this.engine.play(this._synthName);
+
+    if (this._score && this._score.events.length > 0) {
+      this.scheduler.start({
+        score: this._score,
+        onTick: (params) => this.engine.setParams(params),
+      });
+    }
   }
 
   /**
-   * Stop the synth.
+   * Stop the synth and cancel any in-flight score events.
    */
   stop(): void {
+    this.scheduler.cancel();
     this.engine.stop();
   }
 

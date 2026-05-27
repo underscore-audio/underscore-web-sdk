@@ -52,6 +52,7 @@ export {
   subscribeToGeneration,
   type StartGenerationOptions,
   type StartGenerationResult,
+  type SubscribeToGenerationOptions,
 } from "./generation.js";
 
 const DEFAULT_WASM_BASE_URL = "/supersonic/";
@@ -163,7 +164,8 @@ export class Underscore {
       name,
       metadata.description,
       metadata.params,
-      metadata.samples
+      metadata.samples,
+      metadata.score
     );
     synth.markLoaded();
 
@@ -198,20 +200,24 @@ export class Underscore {
    * `jobId` embedded in the URL.
    *
    * @param streamUrlOrPath Absolute or relative stream URL from `startGeneration`.
-   * @param compositionId   Optional. When provided, the SDK will auto-load the
-   *                        finished synth on the terminal `ready` event and
-   *                        attach it as `event.synth`, ready to `.play()`.
-   *                        When omitted, consumers receive protocol events
-   *                        only and can load the synth themselves via
-   *                        {@link Underscore.loadSynth}.
+   * @param options         Optional bag:
+   *   - `compositionId`: when provided, the SDK auto-loads the finished
+   *     synth on the terminal `ready` event and attaches it as
+   *     `event.synth`, ready to `.play()`. When omitted, consumers
+   *     receive protocol events only and can load the synth themselves
+   *     via {@link Underscore.loadSynth}.
+   *   - `signal`: optional AbortSignal; aborting closes the SSE socket
+   *     and ends the generator. Useful for canceling on effect teardown,
+   *     navigation, or a watchdog timeout.
    */
   async *subscribeToGeneration(
     streamUrlOrPath: string,
-    compositionId?: string
+    options: { compositionId?: string; signal?: AbortSignal } = {}
   ): AsyncGenerator<GenerationEvent & { synth?: Synth }> {
     const baseUrl = this.config.baseUrl || DEFAULT_API_BASE_URL;
+    const { compositionId, signal } = options;
 
-    for await (const event of subscribeToGeneration(streamUrlOrPath, baseUrl)) {
+    for await (const event of subscribeToGeneration(streamUrlOrPath, { baseUrl, signal })) {
       if (event.type === "ready" && event.synthName && compositionId) {
         try {
           const synth = await this.loadSynth(compositionId, event.synthName);
@@ -273,6 +279,27 @@ export class Underscore {
    */
   get audioContext(): AudioContext | null {
     return this.engine.audioContext;
+  }
+
+  /**
+   * Set the master output volume.
+   *
+   * Thin pass-through to the audio engine's master `GainNode`.
+   * Accepts `[0, 2]`; values outside that range are clamped (with a
+   * console warning). Non-finite values throw `ValidationError`.
+   * Safe to call before `init()` -- the value is cached and applied
+   * when the audio graph comes up.
+   */
+  setMasterVolume(value: number): void {
+    this.engine.setMasterVolume(value);
+  }
+
+  /**
+   * Get the current master output volume. Defaults to 1.0 before any
+   * `setMasterVolume` call.
+   */
+  getMasterVolume(): number {
+    return this.engine.getMasterVolume();
   }
 }
 

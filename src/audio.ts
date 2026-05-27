@@ -9,11 +9,29 @@ import type { SynthState, SynthStateListener, SampleMetadata } from "./types.js"
 import type { SuperSonic } from "supersonic-scsynth";
 import { type Logger, noopLogger } from "./debug.js";
 import { AudioError } from "./errors.js";
+import {
+  MASTER_VOLUME_DEFAULT,
+  MASTER_VOLUME_SMOOTHING_SEC,
+  clampMasterVolume,
+  spliceMasterGain,
+} from "./audio/master-volume.js";
+import { INIT_TIMEOUT_MS, createInitTimeout } from "./audio/init-watchdog.js";
 
 export interface AudioEngineConfig {
   wasmBaseUrl: string;
   workerBaseUrl?: string;
   logger?: Logger;
+  /**
+   * Override the engine init watchdog (milliseconds).
+   *
+   * Production code should leave this unset; it exists so tests can
+   * exercise the timeout path without sitting on a 10-second timer.
+   * Not surfaced through the public `Underscore` client to keep that
+   * contract narrow.
+   *
+   * @internal
+   */
+  initTimeoutMs?: number;
 }
 
 export class AudioEngine {
@@ -29,6 +47,8 @@ export class AudioEngine {
   private crossfadeInProgress = false;
   private outgoingNodeId: number | null = null;
   private log: Logger;
+  private masterGain: GainNode | null = null;
+  private masterVolume: number = MASTER_VOLUME_DEFAULT;
 
   constructor(config: AudioEngineConfig) {
     this.config = config;
@@ -60,15 +80,56 @@ export class AudioEngine {
 
   /**
    * Initialize the audio engine.
-   * Must be called before playing synths.
-   * Should be called from a user interaction (click/tap) due to browser autoplay policies.
+   * Must be called from a user interaction (click/tap) due to browser autoplay policies.
+   *
+   * If the underlying audio engine does not finish initializing within
+   * {@link INIT_TIMEOUT_MS}, the returned promise rejects with an
+   * {@link AudioError} that explains the gesture requirement. The internal
+   * init state is cleared on rejection so a retry from inside a real
+   * gesture handler starts fresh; without this clear, an early pre-gesture
+   * call would poison every subsequent attempt with the same hung promise.
    */
   async init(): Promise<void> {
     if (this.sonic) return;
     if (this.initPromise) return this.initPromise;
 
-    this.initPromise = this.doInit();
+    this.initPromise = this.initWithWatchdog().catch((err) => {
+      this.initPromise = null;
+      throw err;
+    });
     return this.initPromise;
+  }
+
+  private async initWithWatchdog(): Promise<void> {
+    const { timeoutPromise, cancel } = createInitTimeout(
+      this.config.initTimeoutMs ?? INIT_TIMEOUT_MS
+    );
+
+    try {
+      await Promise.race([this.doInit(), timeoutPromise]);
+    } catch (err) {
+      /*
+       * On timeout the partially-constructed SuperSonic instance is still
+       * polling its suspended AudioContext. Tear it down so the
+       * AudioContext slot is released (browsers cap them at ~6 per page)
+       * and the next gesture-driven retry can start cleanly. Best-effort
+       * -- supersonic versions that lack `shutdown` are tolerated.
+       */
+      try {
+        await this.sonic?.shutdown();
+      } catch {
+        /*
+         * Older supersonic builds without `shutdown` are tolerated --
+         * the partial instance will be garbage-collected once the
+         * AudioContext slot is released by the next gesture-driven
+         * retry's fresh `new SuperSonic()`.
+         */
+      }
+      this.sonic = null;
+      throw err;
+    } finally {
+      cancel();
+    }
   }
 
   private async doInit(): Promise<void> {
@@ -76,12 +137,22 @@ export class AudioEngine {
 
     const workerBaseUrl = this.config.workerBaseUrl || `${this.config.wasmBaseUrl}workers/`;
 
-    this.sonic = new SuperSonic({
+    /*
+     * Hold the freshly-constructed instance in a local. After the
+     * `await sonic.init(...)` below, the watchdog timeout may have
+     * already won the race and detached `this.sonic` (setting it to
+     * null in the catch arm of initWithWatchdog). Using a local
+     * reference for the rest of doInit keeps the splice safe against
+     * that race, and the `this.sonic !== sonic` check at the resume
+     * point is the explicit late-resolve bailout.
+     */
+    const sonic = new SuperSonic({
       workerBaseURL: workerBaseUrl,
       wasmBaseURL: `${this.config.wasmBaseUrl}wasm/`,
     });
+    this.sonic = sonic;
 
-    await this.sonic.init({
+    await sonic.init({
       scsynthOptions: {
         numBuffers: 256,
         realTimeMemorySize: 8192,
@@ -92,6 +163,26 @@ export class AudioEngine {
       },
     });
 
+    if (this.sonic !== sonic) {
+      /*
+       * Watchdog timeout already fired and detached this instance
+       * while we were awaiting `sonic.init()`. The initWithWatchdog
+       * catch arm already attempted a shutdown, but that ran while
+       * the init promise was still pending and may not have
+       * released everything sonic allocated as it finished resolving.
+       * A second best-effort shutdown closes that window; we then
+       * exit silently so the caller's rejection (already thrown by
+       * the watchdog) is the only observable outcome.
+       */
+      try {
+        await sonic.shutdown();
+      } catch {
+        /* older builds without `shutdown`: tolerated */
+      }
+      return;
+    }
+
+    this.masterGain = spliceMasterGain(sonic, this.masterVolume);
     this.notify();
   }
 
@@ -111,18 +202,27 @@ export class AudioEngine {
 
   /**
    * Load a synthdef from binary data.
+   *
+   * Encoded as a `data:` URL rather than a `blob:` URL because the
+   * underlying audio engine probes resources with a `HEAD` request
+   * before fetching, and Chromium rejects HEAD on `blob:` URLs with
+   * `ERR_METHOD_NOT_SUPPORTED`. Synthdefs are small (~5-10 KB), so
+   * the ~33% base64 overhead is negligible compared to the network
+   * round-trip we just avoided. Data URLs also need no revocation,
+   * sidestepping the race between `URL.revokeObjectURL` and the
+   * engine's async fetch.
    */
   async loadSynthdefFromData(data: ArrayBuffer): Promise<void> {
     await this.init();
 
-    const blob = new Blob([data], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-
-    try {
-      await this.sonic!.loadSynthDef(url);
-    } finally {
-      URL.revokeObjectURL(url);
+    const bytes = new Uint8Array(data);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
     }
+    const url = `data:application/octet-stream;base64,${btoa(binary)}`;
+
+    await this.sonic!.loadSynthDef(url);
   }
 
   /**
@@ -137,10 +237,11 @@ export class AudioEngine {
 
     /*
      * Validate URLs up-front, before any audio init work. Samples must
-     * carry a fetchable `url` (typically a signed S3 URL from the SDK
-     * synth endpoint). Silently skipping a sample with no URL would hide
-     * a real API/SDK contract break -- the synth would load but be silent
-     * with no obvious cause. Raise loudly so the caller notices.
+     * carry a fetchable `url` (a signed download URL returned by the
+     * Underscore API). Silently skipping a sample with no URL would
+     * hide a real API/SDK contract break -- the synth would load but
+     * be silent with no obvious cause. Raise loudly so the caller
+     * notices.
      */
     const missingUrl = samples.find((s) => !s.url);
     if (missingUrl) {
@@ -265,6 +366,70 @@ export class AudioEngine {
     }
 
     this.sonic.send("/n_set", ...args);
+  }
+
+  /**
+   * Set the engine master output level.
+   *
+   * Applies a single `GainNode` between the synth output bus and
+   * `audioContext.destination`. Independent of per-synth `amp` cache
+   * values, so layering master volume on top of per-voice amp
+   * settings is safe.
+   *
+   * Clamps to `[0, 2]`; values outside that range are warned and
+   * clamped (not thrown) so that a UI slider with a slightly off
+   * upper bound doesn't break audio. Non-finite values (NaN /
+   * Infinity) throw `ValidationError` because they almost always
+   * indicate a UI bug a consumer should surface, not silently smooth.
+   */
+  setMasterVolume(value: number): void {
+    const { value: clamped, warning } = clampMasterVolume(value);
+    if (warning) {
+      console.warn(warning);
+    }
+    this.masterVolume = clamped;
+    if (!this.masterGain) {
+      /*
+       * The master GainNode is spliced in during `init()` by reaching
+       * through Supersonic's private `workletNode`/`audioContext`. If
+       * Supersonic ever renames or restructures those fields the splice
+       * silently no-ops and `setMasterVolume` becomes a black hole.
+       * Warn loudly so the regression surfaces in user reports. The
+       * long-term fix is a public setMasterGain API in supersonic-scsynth.
+       */
+      console.warn(
+        "[underscore-sdk] setMasterVolume called but master GainNode is not " +
+          "spliced; value is cached and will apply once init() succeeds. If " +
+          "this persists after init(), the audio engine's worklet shape may " +
+          "have changed."
+      );
+      return;
+    }
+    /*
+     * setTargetAtTime with a 30 ms time-constant smooths slider drag
+     * into a continuous amplitude curve. A bare `gain.value = x`
+     * produces audible zipper noise on rapid moves because each frame
+     * is a discrete step; the smoothed approach is universally cheap
+     * and the lag is well below the JND for level changes.
+     *
+     * The GainNode's own `context` is the source of truth for
+     * `currentTime` here -- it is by construction the same context
+     * the worklet is wired into and cannot be null while the node
+     * exists, so no extra null check is needed.
+     */
+    this.masterGain.gain.setTargetAtTime(
+      clamped,
+      this.masterGain.context.currentTime,
+      MASTER_VOLUME_SMOOTHING_SEC
+    );
+  }
+
+  /**
+   * Get the current master output level. Returns the most recently
+   * set (clamped) value, regardless of whether init has run yet.
+   */
+  getMasterVolume(): number {
+    return this.masterVolume;
   }
 
   /**
@@ -396,43 +561,6 @@ export class AudioEngine {
       this.sonic.send("/n_free", this.outgoingNodeId);
       this.outgoingNodeId = null;
     }
-  }
-
-  /**
-   * Play a synth with initial amp=0 (for manual crossfade control).
-   */
-  async playMuted(synthName: string): Promise<number> {
-    if (!this.sonic) {
-      throw new AudioError("Audio not initialized. Call init() first.");
-    }
-
-    const ctx = this.sonic.audioContext as AudioContext;
-    if (ctx?.state === "suspended") {
-      await ctx.resume();
-    }
-
-    this.currentNodeId++;
-    const nodeId = this.currentNodeId;
-
-    this.sonic.send("/s_new", synthName, nodeId, 0, 0, "amp", 0);
-
-    return nodeId;
-  }
-
-  /**
-   * Set a parameter on a specific node (for crossfade control).
-   */
-  setParamOnNode(nodeId: number, paramName: string, value: number): void {
-    if (!this.sonic) return;
-    this.sonic.send("/n_set", nodeId, paramName, value);
-  }
-
-  /**
-   * Free a specific node.
-   */
-  freeNode(nodeId: number): void {
-    if (!this.sonic) return;
-    this.sonic.send("/n_free", nodeId);
   }
 
   private sleep(ms: number): Promise<void> {

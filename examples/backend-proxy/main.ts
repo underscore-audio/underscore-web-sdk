@@ -287,7 +287,7 @@ generateBtn.addEventListener("click", async () => {
     };
 
     const absolute = /^https?:\/\//i.test(streamUrl) ? streamUrl : `${host}${streamUrl}`;
-    for await (const event of client.subscribeToGeneration(absolute, compositionId)) {
+    for await (const event of client.subscribeToGeneration(absolute, { compositionId })) {
       switch (event.type) {
         // `thinking` and `code` fire many times per generation. We
         // intentionally swallow them in this minimal example; real apps

@@ -77,16 +77,42 @@ export async function startGeneration(
 }
 
 /**
+ * Options for {@link subscribeToGeneration}.
+ *
+ * Held as an options bag (rather than positional arguments) so future
+ * additions -- timeouts, custom EventSource factories, log hooks --
+ * never have to grow the signature.
+ */
+export interface SubscribeToGenerationOptions {
+  /**
+   * Base URL to prepend when `streamUrlOrPath` is a relative path. If
+   * omitted, the path is used as-is (which only works when it is already
+   * absolute).
+   */
+  baseUrl?: string;
+  /**
+   * AbortSignal. Aborting closes the underlying SSE socket and ends
+   * the generator. Safe to abort before iteration starts; the
+   * generator will finish immediately on the first `next()`.
+   */
+  signal?: AbortSignal;
+}
+
+/**
  * Subscribe to a generation stream by URL. Browser-only (uses EventSource).
  *
  * Accepts either an absolute URL or the relative `streamUrl` returned by
- * `startGeneration`. When relative, `baseUrl` is prepended. No API key is
- * required -- the stream is protected by the unguessable `jobId`
- * embedded in the URL.
+ * `startGeneration`. When relative, `options.baseUrl` is prepended. No
+ * API key is required -- the stream is protected by the unguessable
+ * `jobId` embedded in the URL.
+ *
+ * @param streamUrlOrPath Absolute or relative stream URL.
+ * @param options Optional bag: `baseUrl` to resolve relative paths,
+ *                `signal` to cancel.
  */
 export async function* subscribeToGeneration(
   streamUrlOrPath: string,
-  baseUrl?: string
+  options: SubscribeToGenerationOptions = {}
 ): AsyncGenerator<GenerationEvent> {
   if (typeof EventSource === "undefined") {
     throw new Error(
@@ -95,16 +121,49 @@ export async function* subscribeToGeneration(
     );
   }
 
+  const { baseUrl, signal } = options;
+
+  /*
+   * Short-circuit before allocating an EventSource if the caller
+   * already aborted. Otherwise we would open the SSE socket only to
+   * immediately close it -- harmless but wasteful in tight cleanup
+   * paths (e.g. an effect that subscribes and immediately tears down
+   * on dependency change).
+   */
+  if (signal?.aborted) {
+    return;
+  }
+
   const url = /^https?:\/\//i.test(streamUrlOrPath)
     ? streamUrlOrPath
     : `${baseUrl ?? ""}${streamUrlOrPath}`;
 
   const events: GenerationEvent[] = [];
-  let resolveNext: ((value: IteratorResult<GenerationEvent>) => void) | null = null;
+  let resolveNext: ((value: IteratorResult<GenerationEvent, undefined>) => void) | null = null;
   let done = false;
-  let error: Error | null = null;
 
   const eventSource = new EventSource(url);
+
+  /*
+   * Wire the abort signal through so a consumer cleanup (effect
+   * teardown, navigation, watchdog timeout) closes the SSE socket
+   * immediately. Without this, the EventSource stays open and the
+   * generator stays suspended on `await resolveNext`, leaking an
+   * HTTP/1.1 connection slot per stuck subscription.
+   */
+  const onAbort = (): void => {
+    if (done) return;
+    done = true;
+    eventSource.close();
+    if (resolveNext) {
+      const resolve = resolveNext;
+      resolveNext = null;
+      resolve({ value: undefined, done: true });
+    }
+  };
+  if (signal) {
+    signal.addEventListener("abort", onAbort, { once: true });
+  }
 
   eventSource.onmessage = (e) => {
     try {
@@ -130,15 +189,23 @@ export async function* subscribeToGeneration(
   };
 
   eventSource.onerror = () => {
-    if (!done) {
-      error = new Error("SSE connection error");
-      done = true;
-      eventSource.close();
-      if (resolveNext) {
-        const resolve = resolveNext;
-        resolveNext = null;
-        resolve({ value: { type: "error", error: "Connection lost" }, done: false });
-      }
+    if (done) return;
+    /*
+     * Funnel transport errors through the same event queue the
+     * normal message path uses. The generator's drain loop sees the
+     * synthetic `error` event on its next `next()` call and the
+     * caller's for-await receives it like any other event, no extra
+     * post-loop branch needed.
+     */
+    const errEvent: GenerationEvent = { type: "error", error: "Connection lost" };
+    done = true;
+    eventSource.close();
+    if (resolveNext) {
+      const resolve = resolveNext;
+      resolveNext = null;
+      resolve({ value: errEvent, done: false });
+    } else {
+      events.push(errEvent);
     }
   };
 
@@ -147,7 +214,7 @@ export async function* subscribeToGeneration(
       if (events.length > 0) {
         yield events.shift()!;
       } else if (!done) {
-        const result = await new Promise<IteratorResult<GenerationEvent>>((resolve) => {
+        const result = await new Promise<IteratorResult<GenerationEvent, undefined>>((resolve) => {
           resolveNext = resolve;
         });
         if (!result.done) {
@@ -157,10 +224,9 @@ export async function* subscribeToGeneration(
     }
   } finally {
     eventSource.close();
-  }
-
-  if (error) {
-    yield { type: "error", error: (error as Error).message };
+    if (signal) {
+      signal.removeEventListener("abort", onAbort);
+    }
   }
 }
 
@@ -191,7 +257,7 @@ export async function* streamGeneration(
     return;
   }
 
-  yield* subscribeToGeneration(start.streamUrl, baseUrl);
+  yield* subscribeToGeneration(start.streamUrl, { baseUrl });
 }
 
 interface BackendEvent {
@@ -206,7 +272,7 @@ interface BackendEvent {
 
 /*
  * Map server SSE event types to the SDK's minimal GenerationEvent union.
- * The server's stream.ts always normalizes `llm.*` events to these short
+ * The backend SSE handler always normalizes `llm.*` events to these short
  * names before emitting to clients, so we do not need to handle `llm.*`
  * variants here. Unmapped events are surfaced as `{ type: "raw" }` so
  * power users can introspect the full protocol without SDK changes.

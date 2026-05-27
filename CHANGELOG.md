@@ -12,8 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `client.startGeneration(compositionId, description)` - server-side Node
   entry point that kicks off a generation job with a secret key and
   returns `{ jobId, streamUrl }`.
-- `client.subscribeToGeneration(streamUrl, compositionId?)` - browser-side
+- `client.subscribeToGeneration(streamUrl, options?)` - browser-side
   entry point that subscribes to an in-flight generation stream via SSE.
+  Accepts `{ compositionId?, signal? }`; `compositionId` auto-loads the
+  finished synth on `ready`, `signal` (AbortSignal) cancels the stream.
   No API key required; the `jobId` in the URL is a capability token.
 - `GenerationEvent.type === "raw"` variant as an escape hatch so callers
   can observe unmapped server events without SDK changes.

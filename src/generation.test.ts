@@ -8,6 +8,15 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { ApiError } from "./errors.js";
+import { MockEventSource } from "../test/setup.js";
+
+/*
+ * Drain a microtask hop. The subscribeToGeneration body runs as a
+ * microtask after the consumer's first `.next()`; one tick is enough
+ * to let it construct the EventSource so MockEventSource.instances
+ * reflects the live socket.
+ */
+const nextTick = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 describe("generation", () => {
   const mockFetch = vi.fn();
@@ -130,6 +139,128 @@ describe("generation", () => {
       } finally {
         vi.stubGlobal("EventSource", original);
       }
+    });
+  });
+
+  describe("subscribeToGeneration early-abort short-circuit", () => {
+    /*
+     * Documented contract: a signal that is already aborted at call
+     * time short-circuits the generator without allocating an
+     * EventSource. Worth pinning explicitly because the wrong place to
+     * check `signal.aborted` (after `new EventSource(url)`) opens a
+     * socket only to immediately close it -- harmless but a real cost
+     * in tight effect-cleanup loops.
+     */
+    it("does not construct an EventSource when the signal is already aborted", async () => {
+      const ctorSpy = vi.fn();
+      class TrackingEventSource {
+        url: string;
+        onmessage: ((e: MessageEvent) => void) | null = null;
+        onerror: ((e: Event) => void) | null = null;
+        close = vi.fn();
+        addEventListener = vi.fn();
+        removeEventListener = vi.fn();
+        constructor(url: string) {
+          ctorSpy(url);
+          this.url = url;
+        }
+      }
+      const original = globalThis.EventSource;
+      vi.stubGlobal("EventSource", TrackingEventSource);
+      try {
+        const controller = new AbortController();
+        controller.abort();
+
+        const { subscribeToGeneration } = await import("./generation.js");
+        const iter = subscribeToGeneration("https://api.test.com/api/stream/cmp/job", {
+          signal: controller.signal,
+        });
+
+        const first = await iter.next();
+        expect(first.done).toBe(true);
+        expect(ctorSpy).not.toHaveBeenCalled();
+      } finally {
+        vi.stubGlobal("EventSource", original);
+      }
+    });
+  });
+
+  describe("subscribeToGeneration mid-stream abort", () => {
+    /*
+     * Documented contract: aborting the signal AFTER the EventSource
+     * is open closes the socket and terminates the async iterator
+     * cleanly. This is the most common cancel path consumers use
+     * (effect teardown, navigation, watchdog timeout) and is distinct
+     * from the early-abort short-circuit -- a regression here would
+     * leak an SSE socket per stuck subscription with no error visible
+     * to the caller.
+     */
+    it("closes the EventSource and ends the iterator when the signal aborts after the stream opens", async () => {
+      MockEventSource.resetInstances();
+      const controller = new AbortController();
+
+      const { subscribeToGeneration } = await import("./generation.js");
+      const iter = subscribeToGeneration("https://api.test.com/api/stream/cmp/job", {
+        signal: controller.signal,
+      });
+
+      const pending = iter.next();
+      await nextTick();
+
+      const es = MockEventSource.instances.at(-1)!;
+      expect(es.readyState).not.toBe(MockEventSource.CLOSED);
+
+      controller.abort();
+
+      const result = await pending;
+      expect(result.done).toBe(true);
+      expect(es.readyState).toBe(MockEventSource.CLOSED);
+
+      /*
+       * After a clean abort the iterator stays terminated -- no spurious
+       * follow-on yields and no thrown error. A consumer's for-await
+       * loop will exit normally.
+       */
+      const followup = await iter.next();
+      expect(followup.done).toBe(true);
+    });
+  });
+
+  describe("subscribeToGeneration SSE error funnel", () => {
+    /*
+     * Documented contract: a transport error on the EventSource is
+     * surfaced to the consumer as an in-order `{ type: "error" }` event
+     * on the async iterator, NOT as a thrown exception and NOT as an
+     * out-of-order yield after the stream loop has already drained.
+     * The previous implementation funneled errors through a post-loop
+     * `if (error) yield`; this pins the queue-based replacement so a
+     * regression to the post-loop pattern (which reorders errors after
+     * any buffered messages) is caught.
+     */
+    it("yields a typed error event in-order when the EventSource raises a transport error", async () => {
+      MockEventSource.resetInstances();
+
+      const { subscribeToGeneration } = await import("./generation.js");
+      const iter = subscribeToGeneration("https://api.test.com/api/stream/cmp/job");
+
+      const pending = iter.next();
+      await nextTick();
+
+      const es = MockEventSource.instances.at(-1)!;
+      es._simulateError();
+
+      const result = await pending;
+      expect(result.done).toBe(false);
+      expect(result.value).toEqual({ type: "error", error: "Connection lost" });
+
+      /*
+       * After the synthetic error the iterator terminates without
+       * yielding further events. The contract is one error event then
+       * done -- consumers must not see a duplicate or a trailing
+       * undefined value.
+       */
+      const next = await iter.next();
+      expect(next.done).toBe(true);
     });
   });
 

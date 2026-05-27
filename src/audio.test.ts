@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { AudioEngine } from "./audio.js";
-import { AudioError } from "./errors.js";
+import { AudioError, ValidationError } from "./errors.js";
 
 describe("AudioEngine", () => {
   let engine: AudioEngine;
@@ -106,9 +106,7 @@ describe("AudioEngine", () => {
 
   describe("play()", () => {
     it("throws when not initialized", async () => {
-      await expect(engine.play("test_synth")).rejects.toThrow(
-        "Audio not initialized",
-      );
+      await expect(engine.play("test_synth")).rejects.toThrow("Audio not initialized");
     });
   });
 
@@ -116,6 +114,93 @@ describe("AudioEngine", () => {
     it("does nothing when no synth is loaded", async () => {
       await expect(engine.toggle()).resolves.toBeUndefined();
       expect(engine.isPlaying()).toBe(false);
+    });
+  });
+
+  describe("masterVolume", () => {
+    it("defaults to 1.0 before any setMasterVolume call", () => {
+      expect(engine.getMasterVolume()).toBe(1);
+    });
+
+    it("setMasterVolume(0) stores 0", () => {
+      engine.setMasterVolume(0);
+      expect(engine.getMasterVolume()).toBe(0);
+    });
+
+    it("setMasterVolume(1) stores 1", () => {
+      engine.setMasterVolume(1);
+      expect(engine.getMasterVolume()).toBe(1);
+    });
+
+    it("setMasterVolume(3) clamps to ceiling 2 and warns (no throw)", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        expect(() => engine.setMasterVolume(3)).not.toThrow();
+        expect(engine.getMasterVolume()).toBe(2);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("clamping"));
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it("setMasterVolume(-1) clamps to floor 0 and warns (no throw)", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        expect(() => engine.setMasterVolume(-1)).not.toThrow();
+        expect(engine.getMasterVolume()).toBe(0);
+        expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("clamping"));
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it("setMasterVolume(NaN) throws ValidationError", () => {
+      expect(() => engine.setMasterVolume(NaN)).toThrow(ValidationError);
+    });
+
+    it("setMasterVolume(Infinity) throws ValidationError", () => {
+      expect(() => engine.setMasterVolume(Infinity)).toThrow(ValidationError);
+    });
+
+    it("getMasterVolume returns the most recent clamped value across multiple sets", () => {
+      engine.setMasterVolume(0.5);
+      expect(engine.getMasterVolume()).toBe(0.5);
+      engine.setMasterVolume(1.7);
+      expect(engine.getMasterVolume()).toBe(1.7);
+      engine.setMasterVolume(0);
+      expect(engine.getMasterVolume()).toBe(0);
+    });
+
+    it("warns on the no-op path when the master GainNode is missing", () => {
+      /*
+       * Pre-init the engine has no `masterGain` spliced yet. A
+       * `setMasterVolume` call still caches the value, but the audible
+       * path is a black hole -- the warn lets a silent supersonic
+       * dependency regression (renamed worklet/audioContext fields)
+       * surface in the console instead of disappearing.
+       */
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        engine.setMasterVolume(0.5);
+        expect(engine.getMasterVolume()).toBe(0.5);
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining("master GainNode is not spliced")
+        );
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it("is independent of per-synth setParam('amp', x): amp cache is unaffected", () => {
+      /*
+       * Master gain layers on top of per-voice amp ramps without
+       * mutating them. This is the contract that makes it safe for a
+       * UI slider to ride above per-voice amp settings.
+       */
+      engine.setMasterVolume(2);
+      expect(engine.getMasterVolume()).toBe(2);
+      expect(engine.getParam("amp")).toBeUndefined();
+      expect(engine.getAllParams()).toEqual({});
     });
   });
 
