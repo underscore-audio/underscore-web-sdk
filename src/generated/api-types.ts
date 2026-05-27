@@ -8,6 +8,9 @@ import {
   ParamScaleSchema,
   ParamMetadataSchema,
   SampleMetadataSchema,
+  ScoreCurveSchema,
+  ScoreEventSchema,
+  SynthScoreSchema,
   SynthSummarySchema,
   SynthMetadataSchema,
   ListSynthsResponseSchema,
@@ -30,6 +33,9 @@ export type ParamType = z.infer<typeof ParamTypeSchema>;
 export type ParamScale = z.infer<typeof ParamScaleSchema>;
 export type ParamMetadata = z.infer<typeof ParamMetadataSchema>;
 export type SampleMetadata = z.infer<typeof SampleMetadataSchema>;
+export type ScoreCurve = z.infer<typeof ScoreCurveSchema>;
+export type ScoreEvent = z.infer<typeof ScoreEventSchema>;
+export type SynthScore = z.infer<typeof SynthScoreSchema>;
 export type SynthSummary = z.infer<typeof SynthSummarySchema>;
 export type SynthMetadata = z.infer<typeof SynthMetadataSchema>;
 export type ListSynthsResponse = z.infer<typeof ListSynthsResponseSchema>;

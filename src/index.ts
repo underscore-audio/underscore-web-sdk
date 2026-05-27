@@ -164,7 +164,8 @@ export class Underscore {
       name,
       metadata.description,
       metadata.params,
-      metadata.samples
+      metadata.samples,
+      metadata.score
     );
     synth.markLoaded();
 
