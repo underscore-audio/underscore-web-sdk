@@ -99,22 +99,51 @@ vi.stubGlobal("EventSource", MockEventSource);
 
 /**
  * Mock supersonic-scsynth module.
+ *
+ * Carries enough audioContext + workletNode shape for the SDK's
+ * master-bus splice to succeed silently during init: a real Supersonic
+ * exposes both, and replicating that here keeps the splice-skipped
+ * warn from spamming every integration test that touches init().
  */
 vi.mock("supersonic-scsynth", () => {
-  const mockAudioContext = {
-    state: "suspended",
-    resume: vi.fn().mockResolvedValue(undefined),
-  };
-
-  return {
-    SuperSonic: vi.fn().mockImplementation(() => ({
+  const buildSonic = (): {
+    audioContext: unknown;
+    workletNode: { connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> };
+    init: ReturnType<typeof vi.fn>;
+    loadSynthDef: ReturnType<typeof vi.fn>;
+    loadSample: ReturnType<typeof vi.fn>;
+    sync: ReturnType<typeof vi.fn>;
+    send: ReturnType<typeof vi.fn>;
+  } => {
+    const mockGain = {
+      gain: { value: 1, setTargetAtTime: vi.fn() },
+      context: { currentTime: 0 },
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    };
+    const mockAudioContext = {
+      state: "suspended",
+      destination: {},
+      resume: vi.fn().mockResolvedValue(undefined),
+      createGain: vi.fn(() => mockGain),
+    };
+    const mockWorkletNode = {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+    };
+    return {
       audioContext: mockAudioContext,
+      workletNode: mockWorkletNode,
       init: vi.fn().mockResolvedValue(undefined),
       loadSynthDef: vi.fn().mockResolvedValue(undefined),
       loadSample: vi.fn().mockResolvedValue(undefined),
       sync: vi.fn().mockResolvedValue(undefined),
       send: vi.fn(),
-    })),
+    };
+  };
+
+  return {
+    SuperSonic: vi.fn().mockImplementation(buildSonic),
   };
 });
 

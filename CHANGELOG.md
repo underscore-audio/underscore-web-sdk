@@ -7,40 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-28
+
 ### Added
 
 - `client.startGeneration(compositionId, description)` - server-side Node
   entry point that kicks off a generation job with a secret key and
   returns `{ jobId, streamUrl }`.
-- `client.subscribeToGeneration(streamUrl, compositionId?)` - browser-side
+- `client.subscribeToGeneration(streamUrl, options?)` - browser-side
   entry point that subscribes to an in-flight generation stream via SSE.
+  Accepts `{ compositionId?, signal? }`; `compositionId` auto-loads the
+  finished synth on `ready`, `signal` (AbortSignal) cancels the stream.
   No API key required; the `jobId` in the URL is a capability token.
 - `GenerationEvent.type === "raw"` variant as an escape hatch so callers
   can observe unmapped server events without SDK changes.
-- `examples/server.ts` - tiny Express backend proxy demonstrating the
-  secure generation flow (secret key stays on the server).
+- `examples/backend-proxy/` - Vite + Express demo of the secure generation
+  flow (secret key stays on the server).
 - Live integration test suite under `test/live/` (run with `npm run test:live`).
-  Exercises a real running Underscore API (local or production) selected via
-  `UNDERSCORE_BASE_URL`; credentials come from `UNDERSCORE_PUBLISHABLE_KEY`
-  and `UNDERSCORE_SECRET_KEY`. The slow generation tier is gated behind
-  `UNDERSCORE_LIVE_GENERATION=1`. Missing env vars skip cleanly so
-  `npm run test:live` is safe to run on forks without credentials.
-- Pre-commit hook via husky + lint-staged: runs `eslint --fix` + prettier
-  on staged files, then `typecheck` and the mocked test suite. Bypass
-  with `git commit --no-verify` when necessary. See CONTRIBUTING.md.
+- Pre-commit hook via husky + lint-staged.
+- `audio/init-watchdog.ts` and `audio/master-volume.ts` modules extracted
+  from the audio engine.
 
 ### Changed
 
+- **Breaking:** `Underscore.subscribeToGeneration` and the standalone
+  `subscribeToGeneration` function now take an **options bag** as the
+  second argument instead of positional `(compositionId?, signal?)`.
+  Migrate callers from
+  `subscribeToGeneration(url, compositionId, signal)` to
+  `subscribeToGeneration(url, { compositionId, signal })`.
 - `AudioEngine.loadSamples` now throws `AudioError` when a sample is
-  missing `url` instead of silently skipping. Surfaces API/SDK contract
-  breaks immediately rather than producing a silent synth.
+  missing `url` instead of silently skipping.
 - Consolidated demo and examples into single `examples/` directory.
 - Improved README with cleaner structure and tables.
-- Updated CONTRIBUTING.md with accurate project structure.
 
 ### Fixed
 
 - Parameter type validation now accepts any string (supports custom types like `bpm`, `generic`).
+- AbortSignal on generation SSE subscriptions now closes the socket
+  immediately on effect teardown (no leaked EventSource connections).
 
 ### Removed
 

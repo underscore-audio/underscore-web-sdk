@@ -2,10 +2,10 @@
  * Tests for the Synth class.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { Synth } from "./synth.js";
 import type { AudioEngine } from "./audio.js";
-import type { ParamMetadata, SampleMetadata } from "./types.js";
+import type { ParamMetadata, SampleMetadata, SynthScore } from "./types.js";
 
 describe("Synth", () => {
   let mockEngine: AudioEngine;
@@ -306,6 +306,101 @@ describe("Synth", () => {
       (mockEngine.isCrossfading as ReturnType<typeof vi.fn>).mockReturnValue(true);
       expect(synth.isCrossfading()).toBe(true);
       expect(mockEngine.isCrossfading).toHaveBeenCalled();
+    });
+  });
+
+  describe("score playback", () => {
+    /*
+     * vitest fake timers let us drive the scheduler deterministically.
+     * The contract under test: play() starts the score after the
+     * engine plays the synth; each event lands on the engine via
+     * setParams in tMs order; stop() cancels any pending events.
+     */
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    const score: SynthScore = {
+      totalDurationSec: 10,
+      events: [
+        { tMs: 0, params: { amp: 0.1 } },
+        { tMs: 1000, params: { cutoff: 3000 } },
+        { tMs: 5000, params: { amp: 0 } },
+      ],
+    };
+
+    it("score is exposed via getter", () => {
+      const scored = new Synth(
+        mockEngine,
+        "cmp_test123",
+        "scored",
+        "scored synth",
+        testParams,
+        undefined,
+        score
+      );
+      expect(scored.score).toEqual(score);
+    });
+
+    it("play() fires score events on the engine in tMs order", async () => {
+      const scored = new Synth(
+        mockEngine,
+        "cmp_test123",
+        "scored",
+        "scored synth",
+        testParams,
+        undefined,
+        score
+      );
+      scored.markLoaded();
+
+      await scored.play();
+      expect(mockEngine.play).toHaveBeenCalledWith("scored");
+
+      vi.advanceTimersByTime(0);
+      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(4000);
+
+      const calls = (mockEngine.setParams as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+      expect(calls).toEqual([{ amp: 0.1 }, { cutoff: 3000 }, { amp: 0 }]);
+    });
+
+    it("stop() cancels pending score events", async () => {
+      const scored = new Synth(
+        mockEngine,
+        "cmp_test123",
+        "scored",
+        "scored synth",
+        testParams,
+        undefined,
+        score
+      );
+      scored.markLoaded();
+      await scored.play();
+
+      vi.advanceTimersByTime(500);
+      scored.stop();
+      vi.advanceTimersByTime(10_000);
+
+      const calls = (mockEngine.setParams as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]);
+      /*
+       * The tMs:0 event fires synchronously during play(), but
+       * everything after is cancelled by stop(). Anything beyond
+       * the first call is a contract regression.
+       */
+      expect(calls).toEqual([{ amp: 0.1 }]);
+      expect(mockEngine.stop).toHaveBeenCalled();
+    });
+
+    it("play() without a score does not call setParams", async () => {
+      const unscored = new Synth(mockEngine, "cmp_test123", "unscored", "no score", testParams);
+      unscored.markLoaded();
+      await unscored.play();
+      vi.advanceTimersByTime(10_000);
+      expect(mockEngine.setParams).not.toHaveBeenCalled();
     });
   });
 });

@@ -52,6 +52,7 @@ export {
   subscribeToGeneration,
   type StartGenerationOptions,
   type StartGenerationResult,
+  type SubscribeToGenerationOptions,
 } from "./generation.js";
 
 const DEFAULT_WASM_BASE_URL = "/supersonic/";
@@ -163,7 +164,8 @@ export class Underscore {
       name,
       metadata.description,
       metadata.params,
-      metadata.samples
+      metadata.samples,
+      metadata.score
     );
     synth.markLoaded();
 
@@ -198,35 +200,27 @@ export class Underscore {
    * `jobId` embedded in the URL.
    *
    * @param streamUrlOrPath Absolute or relative stream URL from `startGeneration`.
-   * @param compositionId   Optional. When provided, the SDK will auto-load the
-   *                        finished synth on the terminal `ready` event and
-   *                        attach it as `event.synth`, ready to `.play()`.
-   *                        When omitted, consumers receive protocol events
-   *                        only and can load the synth themselves via
-   *                        {@link Underscore.loadSynth}.
+   * @param options         Optional bag:
+   *   - `compositionId`: when provided, the SDK auto-loads the finished
+   *     synth on the terminal `ready` event and attaches it as
+   *     `event.synth`, ready to `.play()`. When omitted, consumers
+   *     receive protocol events only and can load the synth themselves
+   *     via {@link Underscore.loadSynth}.
+   *   - `signal`: optional AbortSignal; aborting closes the SSE socket
+   *     and ends the generator. Useful for canceling on effect teardown,
+   *     navigation, or a watchdog timeout.
    */
   async *subscribeToGeneration(
     streamUrlOrPath: string,
-    compositionId?: string,
-    signal?: AbortSignal
+    options: { compositionId?: string; signal?: AbortSignal } = {}
   ): AsyncGenerator<GenerationEvent & { synth?: Synth }> {
     const baseUrl = this.config.baseUrl || DEFAULT_API_BASE_URL;
+    const { compositionId, signal } = options;
 
-    for await (const event of subscribeToGeneration(streamUrlOrPath, baseUrl, signal)) {
-      if (event.type === "ready" && event.synthName && compositionId) {
-        try {
-          const synth = await this.loadSynth(compositionId, event.synthName);
-          yield { ...event, synth };
-        } catch (error) {
-          yield {
-            type: "error",
-            error: error instanceof Error ? error.message : "Failed to load synth",
-          };
-        }
-      } else {
-        yield event;
-      }
-    }
+    yield* this.yieldGenerationWithOptionalSynth(
+      subscribeToGeneration(streamUrlOrPath, { baseUrl, signal }),
+      compositionId
+    );
   }
 
   /**
@@ -248,11 +242,22 @@ export class Underscore {
   ): AsyncGenerator<GenerationEvent & { synth?: Synth }> {
     const baseUrl = this.config.baseUrl || DEFAULT_API_BASE_URL;
 
-    for await (const event of streamGeneration(baseUrl, this.config.apiKey, {
-      compositionId,
-      description,
-    })) {
-      if (event.type === "ready" && event.synthName) {
+    yield* this.yieldGenerationWithOptionalSynth(
+      streamGeneration(baseUrl, this.config.apiKey, { compositionId, description }),
+      compositionId
+    );
+  }
+
+  /**
+   * When `compositionId` is set, auto-load the finished synth on `ready`
+   * and attach it as `event.synth`. Otherwise pass events through unchanged.
+   */
+  private async *yieldGenerationWithOptionalSynth(
+    events: AsyncIterable<GenerationEvent>,
+    compositionId?: string
+  ): AsyncGenerator<GenerationEvent & { synth?: Synth }> {
+    for await (const event of events) {
+      if (event.type === "ready" && event.synthName && compositionId) {
         try {
           const synth = await this.loadSynth(compositionId, event.synthName);
           yield { ...event, synth };

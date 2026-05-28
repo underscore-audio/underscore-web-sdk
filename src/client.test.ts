@@ -62,7 +62,7 @@ describe("ApiClient", () => {
             "Underscore-API-Key": "us_test_key",
             "Content-Type": "application/json",
           }),
-        }),
+        })
       );
       expect(synths).toEqual(mockSynths);
     });
@@ -75,18 +75,14 @@ describe("ApiClient", () => {
       });
 
       const client = new ApiClient("us_test_key");
-      await expect(client.listSynths("cmp_invalid")).rejects.toThrow(
-        "Composition not found",
-      );
+      await expect(client.listSynths("cmp_invalid")).rejects.toThrow("Composition not found");
     });
 
     it("handles network errors gracefully", async () => {
       mockFetch.mockRejectedValueOnce(new Error("Network error"));
 
       const client = new ApiClient("us_test_key");
-      await expect(client.listSynths("cmp_123")).rejects.toThrow(
-        "Network error",
-      );
+      await expect(client.listSynths("cmp_123")).rejects.toThrow("Network error");
     });
   });
 
@@ -119,27 +115,9 @@ describe("ApiClient", () => {
 
       expect(mockFetch).toHaveBeenCalledWith(
         "https://underscore.audio/api/v1/compositions/cmp_123/synths/warm_pad",
-        expect.anything(),
+        expect.anything()
       );
       expect(metadata).toEqual(mockMetadata);
-    });
-  });
-
-  describe("getSynthdefUrl", () => {
-    it("returns correct URL", () => {
-      const client = new ApiClient("us_test_key");
-      const url = client.getSynthdefUrl("cmp_123", "my_synth");
-      expect(url).toBe(
-        "https://underscore.audio/api/v1/compositions/cmp_123/synths/my_synth/synthdef",
-      );
-    });
-
-    it("uses custom base URL", () => {
-      const client = new ApiClient("us_test_key", "https://custom.api.com");
-      const url = client.getSynthdefUrl("cmp_123", "my_synth");
-      expect(url).toBe(
-        "https://custom.api.com/api/v1/compositions/cmp_123/synths/my_synth/synthdef",
-      );
     });
   });
 
@@ -161,7 +139,7 @@ describe("ApiClient", () => {
           headers: expect.objectContaining({
             "Underscore-API-Key": "us_test_key",
           }),
-        }),
+        })
       );
       expect(data).toBe(mockData);
     });
@@ -174,7 +152,7 @@ describe("ApiClient", () => {
 
       const client = new ApiClient("us_test_key");
       await expect(client.fetchSynthdef("cmp_123", "invalid")).rejects.toThrow(
-        "Failed to fetch synthdef: 404",
+        "Failed to fetch synthdef: 404"
       );
     });
   });

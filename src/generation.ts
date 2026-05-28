@@ -77,23 +77,61 @@ export async function startGeneration(
 }
 
 /**
+ * Options for {@link subscribeToGeneration}.
+ *
+ * Held as an options bag (rather than positional arguments) so future
+ * additions -- timeouts, custom EventSource factories, log hooks --
+ * never have to grow the signature.
+ */
+export interface SubscribeToGenerationOptions {
+  /**
+   * Base URL to prepend when `streamUrlOrPath` is a relative path. If
+   * omitted, the path is used as-is (which only works when it is already
+   * absolute).
+   */
+  baseUrl?: string;
+  /**
+   * AbortSignal. Aborting closes the underlying SSE socket and ends
+   * the generator. Safe to abort before iteration starts; the
+   * generator will finish immediately on the first `next()`.
+   */
+  signal?: AbortSignal;
+}
+
+/**
  * Subscribe to a generation stream by URL. Browser-only (uses EventSource).
  *
  * Accepts either an absolute URL or the relative `streamUrl` returned by
- * `startGeneration`. When relative, `baseUrl` is prepended. No API key is
- * required -- the stream is protected by the unguessable `jobId`
- * embedded in the URL.
+ * `startGeneration`. When relative, `options.baseUrl` is prepended. No
+ * API key is required -- the stream is protected by the unguessable
+ * `jobId` embedded in the URL.
+ *
+ * @param streamUrlOrPath Absolute or relative stream URL.
+ * @param options Optional bag: `baseUrl` to resolve relative paths,
+ *                `signal` to cancel.
  */
 export async function* subscribeToGeneration(
   streamUrlOrPath: string,
-  baseUrl?: string,
-  signal?: AbortSignal
+  options: SubscribeToGenerationOptions = {}
 ): AsyncGenerator<GenerationEvent> {
   if (typeof EventSource === "undefined") {
     throw new Error(
       "EventSource is not available in this environment. " +
         "Call subscribeToGeneration from a browser, and run startGeneration on your server."
     );
+  }
+
+  const { baseUrl, signal } = options;
+
+  /*
+   * Short-circuit before allocating an EventSource if the caller
+   * already aborted. Otherwise we would open the SSE socket only to
+   * immediately close it -- harmless but wasteful in tight cleanup
+   * paths (e.g. an effect that subscribes and immediately tears down
+   * on dependency change).
+   */
+  if (signal?.aborted) {
+    return;
   }
 
   const url = /^https?:\/\//i.test(streamUrlOrPath)
@@ -103,7 +141,6 @@ export async function* subscribeToGeneration(
   const events: GenerationEvent[] = [];
   let resolveNext: ((value: IteratorResult<GenerationEvent, undefined>) => void) | null = null;
   let done = false;
-  let error: Error | null = null;
 
   const eventSource = new EventSource(url);
 
@@ -125,11 +162,7 @@ export async function* subscribeToGeneration(
     }
   };
   if (signal) {
-    if (signal.aborted) {
-      onAbort();
-    } else {
-      signal.addEventListener("abort", onAbort, { once: true });
-    }
+    signal.addEventListener("abort", onAbort, { once: true });
   }
 
   eventSource.onmessage = (e) => {
@@ -156,15 +189,23 @@ export async function* subscribeToGeneration(
   };
 
   eventSource.onerror = () => {
-    if (!done) {
-      error = new Error("SSE connection error");
-      done = true;
-      eventSource.close();
-      if (resolveNext) {
-        const resolve = resolveNext;
-        resolveNext = null;
-        resolve({ value: { type: "error", error: "Connection lost" }, done: false });
-      }
+    if (done) return;
+    /*
+     * Funnel transport errors through the same event queue the
+     * normal message path uses. The generator's drain loop sees the
+     * synthetic `error` event on its next `next()` call and the
+     * caller's for-await receives it like any other event, no extra
+     * post-loop branch needed.
+     */
+    const errEvent: GenerationEvent = { type: "error", error: "Connection lost" };
+    done = true;
+    eventSource.close();
+    if (resolveNext) {
+      const resolve = resolveNext;
+      resolveNext = null;
+      resolve({ value: errEvent, done: false });
+    } else {
+      events.push(errEvent);
     }
   };
 
@@ -186,10 +227,6 @@ export async function* subscribeToGeneration(
     if (signal) {
       signal.removeEventListener("abort", onAbort);
     }
-  }
-
-  if (error) {
-    yield { type: "error", error: (error as Error).message };
   }
 }
 
@@ -220,7 +257,7 @@ export async function* streamGeneration(
     return;
   }
 
-  yield* subscribeToGeneration(start.streamUrl, baseUrl);
+  yield* subscribeToGeneration(start.streamUrl, { baseUrl });
 }
 
 interface BackendEvent {

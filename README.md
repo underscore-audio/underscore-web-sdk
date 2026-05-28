@@ -165,7 +165,7 @@ app.post("/generate", async (req, res) => {
 **In the browser** (publishable key, playback only):
 
 ```typescript
-for await (const event of client.subscribeToGeneration(streamUrl, compositionId)) {
+for await (const event of client.subscribeToGeneration(streamUrl, { compositionId })) {
   switch (event.type) {
     case "thinking":
       /* event.content: partial LLM reasoning */ break;
@@ -189,6 +189,20 @@ subscribes directly to the Underscore API without credentials. When
 you pass a `compositionId` to `subscribeToGeneration`, the SDK
 auto-loads the finished synth on the terminal `ready` event and
 attaches it as `event.synth` so you can immediately call `.play()`.
+
+To cancel a subscription early (effect cleanup, navigation, watchdog
+timeout), pass an `AbortSignal`. Aborting closes the SSE socket and
+ends the generator:
+
+```typescript
+const controller = new AbortController();
+const iter = client.subscribeToGeneration(streamUrl, {
+  compositionId,
+  signal: controller.signal,
+});
+// ...
+controller.abort(); // closes the stream and ends the for-await
+```
 
 See [`examples/backend-proxy/`](./examples/backend-proxy/) for the
 full working example.
@@ -214,21 +228,21 @@ there.
 
 ### `Underscore` client
 
-| Method                                                      | Signature                                                                         | Returns / Throws                                                                                                                                                                                                       |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `init()`                                                    | `() => Promise<void>`                                                             | Resolves once the WASM audio engine is running. Rejects with `AudioError` if not called from a user gesture (10s watchdog).                                                                                            |
-| `isInitialized()`                                           | `() => boolean`                                                                   | `true` once `init()` has resolved.                                                                                                                                                                                     |
-| `loadSynth(compositionId, synthName?)`                      | `(string, string?) => Promise<Synth>`                                             | Resolves to a playable `Synth`. Defaults to the latest synth in the composition when `synthName` is omitted. Throws `ApiError` (HTTP), `ValidationError` (schema), `AudioError` (engine), or `SynthError` (no synths). |
-| `listSynths(compositionId)`                                 | `(string) => Promise<SynthSummary[]>`                                             | All synths in the composition. Throws `ApiError`, `ValidationError`.                                                                                                                                                   |
-| `getSynth(compositionId, synthName)`                        | `(string, string) => Promise<SynthMetadata>`                                      | Full metadata including samples + synthdef URL.                                                                                                                                                                        |
-| `getComposition(compositionId)`                             | `(string) => Promise<Composition>`                                                | Composition metadata.                                                                                                                                                                                                  |
-| `createComposition(options?)`                               | `(CreateCompositionOptions?) => Promise<CreateCompositionResponse>`               | Server-only (requires secret key).                                                                                                                                                                                     |
-| `startGeneration(compositionId, description)`               | `(string, string) => Promise<{ jobId, streamUrl }>`                               | Server-only. Kicks off a generation job; returns the unguessable `jobId` and a relative `streamUrl` to forward to the browser. Throws `ApiError`.                                                                      |
-| `subscribeToGeneration(streamUrl, compositionId?, signal?)` | `(string, string?, AbortSignal?) => AsyncGenerator<GenerationEvent & { synth? }>` | Browser-only. Yields events from the SSE stream. When `compositionId` is provided, auto-loads the finished synth on `ready`.                                                                                           |
-| `generate(compositionId, description)`                      | `(string, string) => AsyncGenerator<GenerationEvent & { synth? }>`                | Legacy combined flow. Only safe in trusted environments that can use a secret key AND have an `EventSource` global (Node CLI w/ polyfill, Electron). Browser apps must use the two-call pattern above.                 |
-| `setMasterVolume(value)`                                    | `(number) => void`                                                                | Output bus gain in `[0, 2]`. Out-of-range values clamp with a console warning. Non-finite values throw `ValidationError`. Safe to call before `init()` (cached and applied on init).                                   |
-| `getMasterVolume()`                                         | `() => number`                                                                    | Current (clamped) master gain. Defaults to `1.0`.                                                                                                                                                                      |
-| `audioContext` (getter)                                     | `AudioContext \| null`                                                            | Underlying `AudioContext` once initialized; `null` before. Useful for advanced routing.                                                                                                                                |
+| Method                                        | Signature                                                                                                     | Returns / Throws                                                                                                                                                                                                       |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init()`                                      | `() => Promise<void>`                                                                                         | Resolves once the WASM audio engine is running. Rejects with `AudioError` if not called from a user gesture (10s watchdog).                                                                                            |
+| `isInitialized()`                             | `() => boolean`                                                                                               | `true` once `init()` has resolved.                                                                                                                                                                                     |
+| `loadSynth(compositionId, synthName?)`        | `(string, string?) => Promise<Synth>`                                                                         | Resolves to a playable `Synth`. Defaults to the latest synth in the composition when `synthName` is omitted. Throws `ApiError` (HTTP), `ValidationError` (schema), `AudioError` (engine), or `SynthError` (no synths). |
+| `listSynths(compositionId)`                   | `(string) => Promise<SynthSummary[]>`                                                                         | All synths in the composition. Throws `ApiError`, `ValidationError`.                                                                                                                                                   |
+| `getSynth(compositionId, synthName)`          | `(string, string) => Promise<SynthMetadata>`                                                                  | Full metadata including samples + synthdef URL.                                                                                                                                                                        |
+| `getComposition(compositionId)`               | `(string) => Promise<Composition>`                                                                            | Composition metadata.                                                                                                                                                                                                  |
+| `createComposition(options?)`                 | `(CreateCompositionOptions?) => Promise<CreateCompositionResponse>`                                           | Server-only (requires secret key).                                                                                                                                                                                     |
+| `startGeneration(compositionId, description)` | `(string, string) => Promise<{ jobId, streamUrl }>`                                                           | Server-only. Kicks off a generation job; returns the unguessable `jobId` and a relative `streamUrl` to forward to the browser. Throws `ApiError`.                                                                      |
+| `subscribeToGeneration(streamUrl, options?)`  | `(string, { compositionId?: string; signal?: AbortSignal }?) => AsyncGenerator<GenerationEvent & { synth? }>` | Browser-only. Yields events from the SSE stream. When `options.compositionId` is provided, auto-loads the finished synth on `ready`. `options.signal` cancels the subscription.                                        |
+| `generate(compositionId, description)`        | `(string, string) => AsyncGenerator<GenerationEvent & { synth? }>`                                            | Legacy combined flow. Only safe in trusted environments that can use a secret key AND have an `EventSource` global (Node CLI w/ polyfill, Electron). Browser apps must use the two-call pattern above.                 |
+| `setMasterVolume(value)`                      | `(number) => void`                                                                                            | Output bus gain in `[0, 2]`. Out-of-range values clamp with a console warning. Non-finite values throw `ValidationError`. Safe to call before `init()` (cached and applied on init).                                   |
+| `getMasterVolume()`                           | `() => number`                                                                                                | Current (clamped) master gain. Defaults to `1.0`.                                                                                                                                                                      |
+| `audioContext` (getter)                       | `AudioContext \| null`                                                                                        | Underlying `AudioContext` once initialized; `null` before. Useful for advanced routing.                                                                                                                                |
 
 `shutdown()` is not currently part of the public client API; let the
 client be garbage-collected when you're done with it.

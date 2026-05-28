@@ -8,45 +8,14 @@
 import type { SynthState, SynthStateListener, SampleMetadata } from "./types.js";
 import type { SuperSonic } from "supersonic-scsynth";
 import { type Logger, noopLogger } from "./debug.js";
-import { AudioError, ValidationError } from "./errors.js";
-
-/*
- * Master volume ceiling rationale.
- *
- * Every voice the SDK plays ends in `Limiter.ar(sig * amp, 0.5, 0.01)`
- * with per-UGen `mul <= 0.15`, so a single voice peaks at ~0.5 of
- * WebAudio full-scale (~-6 dBFS). A master gain of 2.0 brings the
- * limited peaks up to 1.0 (the WebAudio clip ceiling). Above 2.0 we'd
- * be clipping audibly even on already-limiter-clamped content, which
- * is never what we want -- cap there and warn rather than letting
- * consumers ship a distorted output by mistake.
- */
-const MASTER_VOLUME_MAX = 2.0;
-const MASTER_VOLUME_MIN = 0;
-const MASTER_VOLUME_DEFAULT = 1.0;
-
-/*
- * 30 ms is well below the perceptual fusion floor for amplitude
- * changes but long enough to smear the discrete steps produced by a
- * UI slider into a continuous ramp, so the user hears the level
- * change as a single smooth motion instead of a zipper.
- */
-const MASTER_VOLUME_SMOOTHING_SEC = 0.03;
-
-/*
- * Watchdog ceiling for engine init.
- *
- * supersonic-scsynth's init waits for `AudioContext.getOutputTimestamp()
- * .contextTime > 0` with no timeout. `contextTime` only advances after
- * the AudioContext transitions from `suspended` to `running`, which
- * requires a user gesture under every major browser's autoplay policy.
- * Without this watchdog, calling `init()` before any user gesture leaves
- * the SDK in a permanent pending state with no error, no log, and no
- * way for the consumer to recover. 10 s comfortably absorbs a slow WASM
- * fetch while still failing loudly when the autoplay policy is the
- * blocker.
- */
-const INIT_TIMEOUT_MS = 10_000;
+import { AudioError } from "./errors.js";
+import {
+  MASTER_VOLUME_DEFAULT,
+  MASTER_VOLUME_SMOOTHING_SEC,
+  clampMasterVolume,
+  spliceMasterGain,
+} from "./audio/master-volume.js";
+import { INIT_TIMEOUT_MS, createInitTimeout } from "./audio/init-watchdog.js";
 
 export interface AudioEngineConfig {
   wasmBaseUrl: string;
@@ -132,20 +101,9 @@ export class AudioEngine {
   }
 
   private async initWithWatchdog(): Promise<void> {
-    const timeoutMs = this.config.initTimeoutMs ?? INIT_TIMEOUT_MS;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        reject(
-          new AudioError(
-            `Audio engine init() did not complete within ${timeoutMs}ms. ` +
-              `This usually means the AudioContext is still suspended -- ` +
-              `browser autoplay policy requires init() to be called from a ` +
-              `user gesture handler (click, tap, keydown).`
-          )
-        );
-      }, timeoutMs);
-    });
+    const { timeoutPromise, cancel } = createInitTimeout(
+      this.config.initTimeoutMs ?? INIT_TIMEOUT_MS
+    );
 
     try {
       await Promise.race([this.doInit(), timeoutPromise]);
@@ -170,7 +128,7 @@ export class AudioEngine {
       this.sonic = null;
       throw err;
     } finally {
-      if (timer) clearTimeout(timer);
+      cancel();
     }
   }
 
@@ -179,12 +137,22 @@ export class AudioEngine {
 
     const workerBaseUrl = this.config.workerBaseUrl || `${this.config.wasmBaseUrl}workers/`;
 
-    this.sonic = new SuperSonic({
+    /*
+     * Hold the freshly-constructed instance in a local. After the
+     * `await sonic.init(...)` below, the watchdog timeout may have
+     * already won the race and detached `this.sonic` (setting it to
+     * null in the catch arm of initWithWatchdog). Using a local
+     * reference for the rest of doInit keeps the splice safe against
+     * that race, and the `this.sonic !== sonic` check at the resume
+     * point is the explicit late-resolve bailout.
+     */
+    const sonic = new SuperSonic({
       workerBaseURL: workerBaseUrl,
       wasmBaseURL: `${this.config.wasmBaseUrl}wasm/`,
     });
+    this.sonic = sonic;
 
-    await this.sonic.init({
+    await sonic.init({
       scsynthOptions: {
         numBuffers: 256,
         realTimeMemorySize: 8192,
@@ -195,40 +163,26 @@ export class AudioEngine {
       },
     });
 
-    /*
-     * Splice a single GainNode between the scsynth AudioWorklet and the
-     * AudioContext destination so consumers can adjust output level at
-     * the bus level without touching per-voice `amp`. Supersonic wires
-     * the worklet directly to `destination` during its own init, so we
-     * disconnect, then re-route worklet -> masterGain -> destination.
-     * `gain.value` is initialized to the cached `masterVolume` so a
-     * `setMasterVolume` call made before init is honored once the
-     * graph exists.
-     */
-    const sonicAny = this.sonic as unknown as {
-      workletNode: AudioNode | null;
-      audioContext: AudioContext | null;
-    };
-    const ctx = sonicAny.audioContext;
-    const workletNode = sonicAny.workletNode;
-    if (ctx && workletNode) {
-      this.masterGain = ctx.createGain();
-      this.masterGain.gain.value = this.masterVolume;
+    if (this.sonic !== sonic) {
+      /*
+       * Watchdog timeout already fired and detached this instance
+       * while we were awaiting `sonic.init()`. The initWithWatchdog
+       * catch arm already attempted a shutdown, but that ran while
+       * the init promise was still pending and may not have
+       * released everything sonic allocated as it finished resolving.
+       * A second best-effort shutdown closes that window; we then
+       * exit silently so the caller's rejection (already thrown by
+       * the watchdog) is the only observable outcome.
+       */
       try {
-        workletNode.disconnect(ctx.destination);
+        await sonic.shutdown();
       } catch {
-        /*
-         * Older Supersonic builds may already have failed the original
-         * destination connect, or may have wired the worklet through a
-         * different node. A best-effort disconnect followed by an
-         * explicit re-connect is correct in either case; we never want
-         * a routing exception to break engine init.
-         */
+        /* older builds without `shutdown`: tolerated */
       }
-      workletNode.connect(this.masterGain);
-      this.masterGain.connect(ctx.destination);
+      return;
     }
 
+    this.masterGain = spliceMasterGain(sonic, this.masterVolume);
     this.notify();
   }
 
@@ -248,18 +202,27 @@ export class AudioEngine {
 
   /**
    * Load a synthdef from binary data.
+   *
+   * Encoded as a `data:` URL rather than a `blob:` URL because the
+   * underlying audio engine probes resources with a `HEAD` request
+   * before fetching, and Chromium rejects HEAD on `blob:` URLs with
+   * `ERR_METHOD_NOT_SUPPORTED`. Synthdefs are small (~5-10 KB), so
+   * the ~33% base64 overhead is negligible compared to the network
+   * round-trip we just avoided. Data URLs also need no revocation,
+   * sidestepping the race between `URL.revokeObjectURL` and the
+   * engine's async fetch.
    */
   async loadSynthdefFromData(data: ArrayBuffer): Promise<void> {
     await this.init();
 
-    const blob = new Blob([data], { type: "application/octet-stream" });
-    const url = URL.createObjectURL(blob);
-
-    try {
-      await this.sonic!.loadSynthDef(url);
-    } finally {
-      URL.revokeObjectURL(url);
+    const bytes = new Uint8Array(data);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) {
+      binary += String.fromCharCode(bytes[i]);
     }
+    const url = `data:application/octet-stream;base64,${btoa(binary)}`;
+
+    await this.sonic!.loadSynthDef(url);
   }
 
   /**
@@ -274,10 +237,11 @@ export class AudioEngine {
 
     /*
      * Validate URLs up-front, before any audio init work. Samples must
-     * carry a fetchable `url` (typically a signed S3 URL from the SDK
-     * synth endpoint). Silently skipping a sample with no URL would hide
-     * a real API/SDK contract break -- the synth would load but be silent
-     * with no obvious cause. Raise loudly so the caller notices.
+     * carry a fetchable `url` (a signed download URL returned by the
+     * Underscore API). Silently skipping a sample with no URL would
+     * hide a real API/SDK contract break -- the synth would load but
+     * be silent with no obvious cause. Raise loudly so the caller
+     * notices.
      */
     const missingUrl = samples.find((s) => !s.url);
     if (missingUrl) {
@@ -419,23 +383,9 @@ export class AudioEngine {
    * indicate a UI bug a consumer should surface, not silently smooth.
    */
   setMasterVolume(value: number): void {
-    if (!Number.isFinite(value)) {
-      throw new ValidationError(
-        `setMasterVolume(value) requires a finite number, got ${value}`,
-        []
-      );
-    }
-    let clamped = value;
-    if (value > MASTER_VOLUME_MAX) {
-      console.warn(
-        `[underscore-sdk] setMasterVolume(${value}) above ceiling ${MASTER_VOLUME_MAX}; clamping`
-      );
-      clamped = MASTER_VOLUME_MAX;
-    } else if (value < MASTER_VOLUME_MIN) {
-      console.warn(
-        `[underscore-sdk] setMasterVolume(${value}) below floor ${MASTER_VOLUME_MIN}; clamping`
-      );
-      clamped = MASTER_VOLUME_MIN;
+    const { value: clamped, warning } = clampMasterVolume(value);
+    if (warning) {
+      console.warn(warning);
     }
     this.masterVolume = clamped;
     if (!this.masterGain) {

@@ -31,6 +31,19 @@ export const SampleMetadataSchema = z.object({
   loop: z.boolean(),
 });
 
+export const ScoreCurveSchema = z.enum(["step", "linear", "exp"]);
+
+export const ScoreEventSchema = z.object({
+  tMs: z.number(),
+  params: z.record(z.number()),
+  curve: ScoreCurveSchema.optional(),
+});
+
+export const SynthScoreSchema = z.object({
+  totalDurationSec: z.number(),
+  events: z.array(ScoreEventSchema),
+});
+
 export const SynthSummarySchema = z.object({
   name: z.string(),
   description: z.string(),
@@ -43,6 +56,7 @@ export const SynthMetadataSchema = z.object({
   description: z.string(),
   params: z.array(ParamMetadataSchema),
   samples: z.array(SampleMetadataSchema).optional(),
+  score: SynthScoreSchema.optional(),
   createdAt: z.string(),
   synthdefUrl: z.string(),
 });

@@ -7,6 +7,9 @@ import type {
   ParamScale as GeneratedParamScale,
   ParamMetadata as GeneratedParamMetadata,
   SampleMetadata as GeneratedSampleMetadata,
+  ScoreCurve as GeneratedScoreCurve,
+  ScoreEvent as GeneratedScoreEvent,
+  SynthScore as GeneratedSynthScore,
   SynthSummary as GeneratedSynthSummary,
   SynthMetadata as GeneratedSynthMetadata,
   CompositionResponse as GeneratedComposition,
@@ -156,6 +159,34 @@ export interface SynthSummary extends GeneratedSynthSummary {
 }
 
 /**
+ * Interpolation curve for score events. Only `step` is honoured by
+ * the v1 scheduler; `linear` / `exp` fall back to step until a
+ * tweened mode lands and are accepted today as forward-compatible
+ * intent.
+ */
+export type ScoreCurve = GeneratedScoreCurve;
+
+/**
+ * One event in a score timeline. Fires at `tMs` and sets each
+ * `params` entry on the running synth (equivalent to `setParams`).
+ */
+export interface ScoreEvent extends GeneratedScoreEvent {
+  tMs: number;
+  params: Record<string, number>;
+  curve?: ScoreCurve;
+}
+
+/**
+ * Score timeline that performs a synth over time. Emitted by the
+ * generation pipeline alongside the SynthDef and played back by
+ * the SDK when `synth.play()` is called.
+ */
+export interface SynthScore extends GeneratedSynthScore {
+  totalDurationSec: number;
+  events: ScoreEvent[];
+}
+
+/**
  * Full synth metadata including samples.
  */
 export interface SynthMetadata extends GeneratedSynthMetadata {
@@ -170,6 +201,14 @@ export interface SynthMetadata extends GeneratedSynthMetadata {
 
   /** Optional audio samples used by this synth. */
   samples?: SampleMetadata[];
+
+  /**
+   * Optional score that performs the synth over time. When present
+   * `synth.play()` automatically starts the scheduler that sets
+   * exposed params at each event's `tMs` offset. Omitted on synths
+   * generated before scores existed; those play to their defaults.
+   */
+  score?: SynthScore;
 
   /** Creation timestamp as an ISO 8601 string. */
   createdAt: string;
