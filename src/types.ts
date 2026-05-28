@@ -159,10 +159,19 @@ export interface SynthSummary extends GeneratedSynthSummary {
 }
 
 /**
- * Interpolation curve for score events. Only `step` is honoured by
- * the v1 scheduler; `linear` / `exp` fall back to step until a
- * tweened mode lands and are accepted today as forward-compatible
- * intent.
+ * Interpolation curve for the transition into a score event:
+ *
+ *   - `step` (default): jump to the new params at `tMs`.
+ *   - `linear`: ramp each numeric param from the prior event's
+ *     value (or the synth default at t=0) to the target value over
+ *     the gap between events. Intermediate `setParams` calls are
+ *     emitted at the scheduler's internal tick rate so audible
+ *     parameter motion is smooth instead of stepped.
+ *   - `exp`: same shape as `linear` but with an exponential curve,
+ *     `start * (end/start)^t`, which matches SuperCollider's `\exp`
+ *     envelope and is the right curve for pitch- and amp-like
+ *     params. Falls back to linear when an endpoint is zero or the
+ *     endpoints have opposite signs.
  */
 export type ScoreCurve = GeneratedScoreCurve;
 

@@ -1,6 +1,6 @@
 {
   "name": "@underscore-audio/sdk",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "TypeScript SDK for loading and playing Underscore synths",
   "main": "./dist/index.js",
