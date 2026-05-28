@@ -10,6 +10,19 @@ import type { ParamMetadata, SynthStateListener, SampleMetadata, SynthScore } fr
 import { SynthError } from "./errors.js";
 import { ScoreScheduler } from "./score-scheduler.js";
 
+/*
+ * Build the {name -> default} map for a synth's params. Used both
+ * by `resetParams()` and by score playback as the starting state
+ * for any param that may be ramped before it appears in an event.
+ */
+function defaultParamValues(params: ParamMetadata[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const p of params) {
+    out[p.name] = p.default;
+  }
+  return out;
+}
+
 export class Synth {
   private engine: AudioEngine;
   private _compositionId: string;
@@ -126,21 +139,9 @@ export class Synth {
     await this.engine.play(this._synthName);
 
     if (this._score && this._score.events.length > 0) {
-      /*
-       * The scheduler needs starting values for any param that may
-       * be ramped before it has appeared in a prior event. Synth
-       * defaults are the only sensible source: the engine's
-       * "current" map at play-time is the freshly-loaded synth's
-       * defaults too, so the two agree.
-       */
-      const initialValues: Record<string, number> = {};
-      for (const p of this._params) {
-        initialValues[p.name] = p.default;
-      }
-
       this.scheduler.start({
         score: this._score,
-        initialValues,
+        initialValues: defaultParamValues(this._params),
         onTick: (params) => this.engine.setParams(params),
       });
     }
@@ -207,11 +208,7 @@ export class Synth {
    * Reset all parameters to their default values.
    */
   resetParams(): void {
-    const defaults: Record<string, number> = {};
-    for (const param of this._params) {
-      defaults[param.name] = param.default;
-    }
-    this.setParams(defaults);
+    this.setParams(defaultParamValues(this._params));
   }
 
   /**

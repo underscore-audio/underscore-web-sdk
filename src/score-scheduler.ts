@@ -32,15 +32,13 @@ export interface ScoreSchedulerOptions {
   score: SynthScore;
   onTick: (params: Record<string, number>) => void;
   /**
-   * Starting values for any param that may be ramped before it has
-   * appeared in a prior event. Typically the synth's
-   * `ParamMetadata.default` map, supplied by `Synth.play()`.
-   *
-   * Optional for backward compatibility: if omitted, ramps that
-   * begin without a prior value snap to the target (effectively
-   * `step`) instead of guessing.
+   * Starting values for every param the score may move. Typically
+   * the synth's `ParamMetadata.default` map, supplied by
+   * `Synth.play()`. Score events that reference params not present
+   * here are a contract violation upstream and will produce NaN
+   * ticks; the scheduler does not paper over that silently.
    */
-  initialValues?: Record<string, number>;
+  initialValues: Record<string, number>;
 }
 
 const RAMP_TICK_MS = 30;
@@ -51,7 +49,6 @@ export class ScoreScheduler {
   start(opts: ScoreSchedulerOptions): void {
     this.cancel();
     const t0 = performance.now();
-    const initialValues = opts.initialValues ?? {};
 
     /*
      * Walk events in order, threading a running `currentValues` map
@@ -61,7 +58,7 @@ export class ScoreScheduler {
      * math never runs inside a setTimeout callback so cancel() is
      * trivially safe.
      */
-    const currentValues: Record<string, number> = { ...initialValues };
+    const currentValues: Record<string, number> = { ...opts.initialValues };
     let prevTMs = 0;
 
     for (const event of opts.score.events) {
@@ -99,18 +96,10 @@ export class ScoreScheduler {
     curve: "linear" | "exp",
     onTick: (params: Record<string, number>) => void
   ): void {
-    /*
-     * Snapshot the start values for just the params this event
-     * touches. Any param that has never been seen before falls back
-     * to the event's target (so the first ramp tick equals the
-     * target, i.e. degenerates to step) instead of pulling random
-     * neighbours from currentValues.
-     */
     const startValues: Record<string, number> = {};
     const targetParams = event.params;
     for (const name of Object.keys(targetParams)) {
-      startValues[name] =
-        valuesBeforeRamp[name] !== undefined ? valuesBeforeRamp[name] : targetParams[name];
+      startValues[name] = valuesBeforeRamp[name];
     }
 
     const duration = endMs - startMs;
