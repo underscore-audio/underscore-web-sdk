@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-28
+
+### Changed
+
+- Score scheduler now honours the `curve` field on each `ScoreEvent`.
+  Previously every event was treated as a `step` jump regardless of
+  what the generated score asked for. `linear` and `exp` events now
+  ramp each numeric param from its prior value (or the synth's
+  default at t=0) to the target across the gap between events,
+  emitting intermediate `setParams` calls so slow filter sweeps and
+  amp fades sound continuous instead of stepped. `step` keeps the
+  previous one-shot behaviour and remains the default. The public
+  API surface is unchanged.
+
+## [0.2.0] - 2026-05-28
+
 ### Added
 
 - `client.startGeneration(compositionId, description)` - server-side Node
