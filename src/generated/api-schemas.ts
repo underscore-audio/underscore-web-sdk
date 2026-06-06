@@ -92,6 +92,8 @@ export const CreateCompositionResponseSchema = z.object({
 
 export const GenerateRequestSchema = z.object({
   description: z.string().trim().min(1),
+  complexity: z.enum(["fast", "balanced", "rich"]).optional(),
+  model: z.string().optional(),
 });
 
 export const GenerateResponseSchema = z.object({
