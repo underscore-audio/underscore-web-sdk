@@ -60,11 +60,16 @@ describe.skipIf(skipReason !== null)("live: generation", () => {
       compositionId = created.id;
     }
 
-    // Kick off generation via the server-safe primitive so we exercise
-    // the same code path a backend-proxy would run.
+    /*
+     * Kick off generation via the server-safe primitive so we exercise
+     * the same code path a backend-proxy would run. `complexity: "fast"`
+     * keeps the live run cheap AND exercises the generation-knobs field
+     * end-to-end: a backend that stops accepting it fails here first.
+     */
     const { jobId, streamUrl } = await client.startGeneration(
       compositionId,
-      "short warm sine pad, stereo, 2 bars"
+      "short warm sine pad, stereo, 2 bars",
+      { complexity: "fast" }
     );
     expect(jobId).toMatch(/^job_/);
     expect(streamUrl).toMatch(/^\/api\/stream\//);

@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-21
+
+### Added
+
+- Generation tuning knobs on the generate request. `startGeneration`
+  (both the standalone function and the `Underscore` method) and the
+  legacy `generate` flow accept optional `complexity`
+  (`"fast" | "balanced" | "rich"`) and `model` fields. `complexity`
+  trades generation speed against musical richness; `model` pins a
+  specific backend model. Omitting both preserves the previous
+  single-shot behavior, so existing callers are unaffected.
+- Server `status` and `repair_started` stream events are now mapped to
+  first-class `progress` events (previously surfaced as `raw`), so
+  progress UIs see compile-retry and repair feedback without touching
+  the unversioned `raw` payload.
+
+### Changed
+
+- The backend version pin (`.underscore-version`) now points at the
+  currently deployed backend, so the cross-repo contract and e2e gates
+  test against reality instead of an April snapshot.
+
+### Removed
+
+- Dead mapping for the retired `declined` stream event. The server no
+  longer emits it; declined requests arrive as regular `error` events.
+  `declined` payloads from older servers now fall through to `raw`.
+
 ## [0.3.0] - 2026-05-28
 
 ### Changed

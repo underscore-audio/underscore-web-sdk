@@ -288,6 +288,69 @@ describe("Underscore", () => {
       expect(result.jobId).toBe("job_abc");
       expect(result.streamUrl).toBe("/api/stream/cmp_123/job_abc");
     });
+
+    it("forwards generation options into the request body", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jobId: "job_abc",
+            streamUrl: "/api/stream/cmp_123/job_abc",
+          }),
+      });
+
+      const client = new Underscore({
+        apiKey: "us_sec_test_key",
+        baseUrl: "https://api.test.com",
+      });
+      await client.startGeneration("cmp_123", "warm pad", {
+        complexity: "fast",
+        model: "some-model-id",
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.test.com/api/v1/compositions/cmp_123/generate",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            description: "warm pad",
+            complexity: "fast",
+            model: "some-model-id",
+          }),
+        })
+      );
+    });
+  });
+
+  describe("generate()", () => {
+    /*
+     * The legacy combined flow shares the startGeneration request path,
+     * so a failing first fetch is enough to observe the outgoing body
+     * without needing an EventSource in the Node test environment.
+     */
+    it("forwards generation options into the request body", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        json: () => Promise.resolve({ error: "Invalid API key" }),
+      });
+
+      const client = new Underscore({
+        apiKey: "us_sec_test_key",
+        baseUrl: "https://api.test.com",
+      });
+      const iter = client.generate("cmp_123", "warm pad", { complexity: "rich" });
+      const { value } = await iter.next();
+
+      expect(value?.type).toBe("error");
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.test.com/api/v1/compositions/cmp_123/generate",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ description: "warm pad", complexity: "rich" }),
+        })
+      );
+    });
   });
 });
 
