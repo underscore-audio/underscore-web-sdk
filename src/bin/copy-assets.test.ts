@@ -12,7 +12,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { copySupersonicAssets, resolvePackageDir } from "./copy-assets.js";
+import { pathToFileURL } from "node:url";
+import { copySupersonicAssets, resolvePackageDir, isEntryModule } from "./copy-assets.js";
 
 describe("copySupersonicAssets", () => {
   let fixtureRoot: string;
@@ -73,6 +74,43 @@ describe("copySupersonicAssets", () => {
         log: () => {},
       })
     ).rejects.toThrow(/supersonic-scsynth-core/);
+  });
+});
+
+describe("isEntryModule", () => {
+  const moduleUrl = pathToFileURL("/pkg/dist/bin/copy-assets.js").href;
+  const modulePath = "/pkg/dist/bin/copy-assets.js";
+
+  it("detects the installed bin invoked via its .bin symlink", () => {
+    /*
+     * Reproduces the real regression: argv[1] is the .bin symlink path,
+     * which realpath collapses onto this module. A filename-suffix guard
+     * missed this and left main() unreached, so the copy silently no-oped.
+     */
+    const binSymlink = "/consumer/node_modules/.bin/underscore-sdk";
+    const resolveReal = (p: string) => (p === binSymlink ? modulePath : p);
+    expect(isEntryModule(binSymlink, moduleUrl, resolveReal)).toBe(true);
+  });
+
+  it("detects a direct `node copy-assets.js` run", () => {
+    expect(isEntryModule(modulePath, moduleUrl, (p) => p)).toBe(true);
+  });
+
+  it("returns false when imported as a library (different entry point)", () => {
+    const importer = "/consumer/build/app.js";
+    expect(isEntryModule(importer, moduleUrl, (p) => p)).toBe(false);
+  });
+
+  it("returns false when argv[1] is undefined", () => {
+    expect(isEntryModule(undefined, moduleUrl, (p) => p)).toBe(false);
+  });
+
+  it("returns false when the entry path cannot be resolved", () => {
+    expect(
+      isEntryModule("/missing", moduleUrl, () => {
+        throw new Error("ENOENT");
+      })
+    ).toBe(false);
   });
 });
 

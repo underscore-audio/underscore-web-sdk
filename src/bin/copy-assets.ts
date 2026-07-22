@@ -18,9 +18,10 @@
  * (coreBaseURL = wasmBaseUrl, workers under wasmBaseUrl + 'workers/').
  */
 
-import { promises as fs } from "fs";
+import { promises as fs, realpathSync } from "fs";
 import { join, dirname } from "path";
 import { createRequire } from "module";
+import { fileURLToPath } from "url";
 
 export interface CopySupersonicAssetsDeps {
   /**
@@ -143,11 +144,31 @@ Next steps:
   }
 }
 
-const isDirectRun =
-  process.argv[1] !== undefined &&
-  (process.argv[1].endsWith("copy-assets.js") || process.argv[1].endsWith("copy-assets.ts"));
+/*
+ * Detect direct CLI invocation. Package managers install this bin as a
+ * `node_modules/.bin/underscore-sdk` symlink, so when a consumer runs
+ * `npx underscore-sdk`, process.argv[1] is the symlink path, not this
+ * module. A filename-suffix check therefore misses the real-world entry
+ * point and main() never runs (the bin exits 0 having copied nothing).
+ * Resolving both sides through realpath collapses the symlink and holds
+ * for `node copy-assets.js`, the installed bin, and tsx/ts-node runs of
+ * the source alike. realpathSync is injectable so the guard's symlink
+ * behaviour can be tested without a real node_modules layout.
+ */
+export function isEntryModule(
+  argv1: string | undefined,
+  moduleUrl: string,
+  resolveReal: (path: string) => string = realpathSync
+): boolean {
+  if (argv1 === undefined) return false;
+  try {
+    return resolveReal(argv1) === resolveReal(fileURLToPath(moduleUrl));
+  } catch {
+    return false;
+  }
+}
 
-if (isDirectRun) {
+if (isEntryModule(process.argv[1], import.meta.url)) {
   main().catch((error) => {
     console.error("Fatal error:", error instanceof Error ? error.message : error);
     process.exit(1);
