@@ -1,14 +1,14 @@
 /**
- * Regression test for `AudioEngine.loadSynthdefFromData`.
+ * Regression tests for `AudioEngine.loadSynthdefFromData`.
  *
- * The engine used to wrap synthdef bytes in a `Blob` and pass the
- * resulting `blob:` URL to the underlying audio backend. That broke
- * the moment the backend started probing resources with a `HEAD`
- * request before fetching them: Chromium rejects HEAD on `blob:`
- * URLs with `ERR_METHOD_NOT_SUPPORTED`, so every synthdef load
- * silently failed and downstream `synth.play()` calls produced no
- * sound. The fix is to encode synthdef bytes as a `data:` URL,
- * which supports HEAD and does not need revocation.
+ * Synthdef bytes have historically been smuggled to the engine through
+ * URL indirection, and it broke twice: `blob:` URLs were rejected by
+ * the engine's `HEAD` probe (Chromium returns ERR_METHOD_NOT_SUPPORTED
+ * for HEAD on blob:), and the `data:` URL replacement carried base64
+ * overhead plus the same probe assumptions. Since supersonic 0.70,
+ * `loadSynthDef` accepts an ArrayBuffer as a first-class input, so the
+ * contract pinned here is direct byte passthrough: no blob:, no data:,
+ * no `URL.createObjectURL`.
  *
  * Lives in its own file for the same reason as audio.init-watchdog.test.ts:
  * the supersonic-scsynth mock is module-wide and must not leak into
@@ -18,7 +18,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const loadSynthDefSpy = vi.fn(async (_url: string) => {});
+const loadSynthDefSpy = vi.fn(async (_source: ArrayBuffer | string) => {});
 
 vi.mock("supersonic-scsynth", () => ({
   SuperSonic: class {
@@ -36,36 +36,33 @@ describe("AudioEngine.loadSynthdefFromData", () => {
     loadSynthDefSpy.mockClear();
   });
 
-  it("passes a data: URL, not a blob: URL", async () => {
+  it("passes the ArrayBuffer straight through, not a URL string", async () => {
     const engine = new AudioEngine({ wasmBaseUrl: "/supersonic/" });
     const bytes = new Uint8Array([0x53, 0x43, 0x67, 0x66]); // "SCgf" magic
     await engine.loadSynthdefFromData(bytes.buffer);
 
     expect(loadSynthDefSpy).toHaveBeenCalledOnce();
-    const url = loadSynthDefSpy.mock.calls[0][0];
-    expect(url).toMatch(/^data:application\/octet-stream;base64,/);
-    expect(url).not.toMatch(/^blob:/);
+    const source = loadSynthDefSpy.mock.calls[0][0];
+    expect(source).toBe(bytes.buffer);
   });
 
-  it("base64-encodes the binary payload faithfully", async () => {
+  it("preserves the binary payload byte-for-byte", async () => {
     const engine = new AudioEngine({ wasmBaseUrl: "/supersonic/" });
     const bytes = new Uint8Array([0x00, 0x01, 0xff, 0x7f, 0x80]);
     await engine.loadSynthdefFromData(bytes.buffer);
 
-    const url = loadSynthDefSpy.mock.calls[0][0];
-    const base64 = url.replace(/^data:[^,]+,/, "");
-    const decoded = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-    expect(Array.from(decoded)).toEqual(Array.from(bytes));
+    const source = loadSynthDefSpy.mock.calls[0][0] as ArrayBuffer;
+    expect(Array.from(new Uint8Array(source))).toEqual(Array.from(bytes));
   });
 
   it("never calls URL.createObjectURL (no blob fallback)", async () => {
     /*
-     * Pin the failure mode that motivated the data: URL switch. If a
-     * future change reintroduces a Blob/createObjectURL path -- even
-     * as a "fallback" -- Chromium will reject the backend's HEAD
-     * probe with ERR_METHOD_NOT_SUPPORTED and audio will go silent.
-     * Asserting this at the syscall boundary is the only way to
-     * catch that regression without wiring up a real browser.
+     * Pin the failure mode that motivated moving off URL indirection.
+     * If a future change reintroduces a Blob/createObjectURL path --
+     * even as a "fallback" -- an engine HEAD probe will reject it and
+     * audio will go silent. Asserting this at the syscall boundary is
+     * the only way to catch that regression without wiring up a real
+     * browser.
      */
     const createObjectUrlSpy = vi.spyOn(URL, "createObjectURL");
     try {

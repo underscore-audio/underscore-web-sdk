@@ -44,7 +44,7 @@ browsers for SharedArrayBuffer (which the WASM audio engine needs).
 ## Install
 
 ```bash
-npm install @underscore-audio/sdk supersonic-scsynth
+npm install @underscore-audio/sdk supersonic-scsynth supersonic-scsynth-core
 ```
 
 The fastest path is the install wizard, which handles the WASM setup
@@ -72,8 +72,7 @@ document.getElementById("play").addEventListener("click", async () => {
 ```
 
 `wasmBaseUrl` must point to the directory where you copied the
-`supersonic-scsynth` runtime files (see [WASM setup](#wasm-setup)
-below).
+supersonic runtime files (see [WASM setup](#wasm-setup) below).
 
 `init()` must be called from inside a user-gesture handler (click, tap,
 keydown). Browser autoplay policy holds the `AudioContext` in a

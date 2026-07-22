@@ -43,8 +43,10 @@ export interface UnderscoreConfig {
   baseUrl?: string;
 
   /**
-   * Base URL where WASM files are served.
-   * Must point to a directory containing the supersonic-scsynth dist files.
+   * Base URL where the supersonic runtime files are served.
+   * Must point to a directory with the layout `npx underscore-sdk`
+   * produces: `wasm/` (scsynth engine from supersonic-scsynth-core)
+   * and `workers/` (OSC workers + AudioWorklet).
    * Example: '/supersonic/'.
    *
    * Only consumed when you call `init()` or `loadSynth()`. Server-side

@@ -12,7 +12,7 @@ The wizard:
 1. Signs you in (or creates an account) through a browser device-code flow.
 2. Provisions a publishable API key for your new integration.
 3. Detects your framework (Vite, Next.js, or vanilla HTML) and package manager.
-4. Installs `@underscore-audio/sdk` and `supersonic-scsynth` and copies the WASM assets
+4. Installs `@underscore-audio/sdk`, `supersonic-scsynth`, and `supersonic-scsynth-core` and copies the WASM assets
    into your public directory.
 5. Patches your build config with the required COOP/COEP headers.
 6. Writes your API key to `.env.local` (or `.env`) without touching existing

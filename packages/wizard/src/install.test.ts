@@ -8,6 +8,7 @@
 
 import { describe, it, expect, vi } from "vitest";
 import { installDependencies, copyWasmAssets } from "./install.js";
+import { sdkInstallPackages } from "./sdk-peers.js";
 import type { DetectedProject, WizardOptions } from "./types.js";
 
 function project(overrides: Partial<DetectedProject> = {}): DetectedProject {
@@ -35,12 +36,23 @@ function options(overrides: Partial<WizardOptions> = {}): WizardOptions {
   };
 }
 
+/*
+ * Expected install specs come from the same helper production uses, so
+ * a peer-range bump in the SDK package.json updates these assertions
+ * automatically. The drift test in sdk-peers.test.ts is what keeps
+ * that helper honest against the canonical package.json.
+ */
+const SDK_PACKAGES = sdkInstallPackages();
+const SUPERSONIC_CORE_SPEC = SDK_PACKAGES.find((s) =>
+  s.startsWith("supersonic-scsynth-core@")
+)!;
+
 describe("installDependencies", () => {
   it.each([
-    ["npm", "npm", ["install", "@underscore-audio/sdk", "supersonic-scsynth@^0.14.0"]],
-    ["pnpm", "pnpm", ["add", "@underscore-audio/sdk", "supersonic-scsynth@^0.14.0"]],
-    ["yarn", "yarn", ["add", "@underscore-audio/sdk", "supersonic-scsynth@^0.14.0"]],
-    ["bun", "bun", ["add", "@underscore-audio/sdk", "supersonic-scsynth@^0.14.0"]],
+    ["npm", "npm", ["install", ...SDK_PACKAGES]],
+    ["pnpm", "pnpm", ["add", ...SDK_PACKAGES]],
+    ["yarn", "yarn", ["add", ...SDK_PACKAGES]],
+    ["bun", "bun", ["add", ...SDK_PACKAGES]],
   ] as const)("runs %s with the right args", async (pm, expectedCmd, expectedArgs) => {
     const run = vi.fn(async () => {});
     await installDependencies(project({ packageManager: pm }), options(), { run });
@@ -64,6 +76,7 @@ describe("installDependencies", () => {
         tarballOverrides: {
           "@underscore-audio/sdk": "/tmp/tarballs/underscore-sdk-0.1.0.tgz",
           "supersonic-scsynth": "/tmp/tarballs/supersonic-scsynth-1.2.3.tgz",
+          "supersonic-scsynth-core": "/tmp/tarballs/supersonic-scsynth-core-1.2.3.tgz",
         },
       }),
       { run }
@@ -74,6 +87,7 @@ describe("installDependencies", () => {
         "install",
         "/tmp/tarballs/underscore-sdk-0.1.0.tgz",
         "/tmp/tarballs/supersonic-scsynth-1.2.3.tgz",
+        "/tmp/tarballs/supersonic-scsynth-core-1.2.3.tgz",
       ],
       { cwd: "/tmp/app" }
     );
@@ -92,25 +106,36 @@ describe("installDependencies", () => {
     );
     expect(run).toHaveBeenCalledWith(
       "pnpm",
-      ["add", "/tmp/tarballs/underscore-sdk-0.1.0.tgz", "supersonic-scsynth@^0.14.0"],
+      ["add", "/tmp/tarballs/underscore-sdk-0.1.0.tgz", ...SDK_PACKAGES.slice(1)],
       { cwd: "/tmp/app" }
     );
   });
 
   it("matches tarballOverrides keys by bare package name, ignoring version specifier", async () => {
+    /*
+     * The core override key is a strict prefix-extension of the
+     * supersonic-scsynth key, so this test also pins that the bare-name
+     * lookup is exact-match: the supersonic-scsynth tarball must not
+     * be substituted for supersonic-scsynth-core or vice versa.
+     */
     const run = vi.fn(async () => {});
     await installDependencies(
       project({ packageManager: "npm" }),
       options({
         tarballOverrides: {
-          "supersonic-scsynth": "/tmp/tarballs/supersonic-scsynth-0.14.0.tgz",
+          "supersonic-scsynth": "/tmp/tarballs/supersonic-scsynth-0.70.0.tgz",
         },
       }),
       { run }
     );
     expect(run).toHaveBeenCalledWith(
       "npm",
-      ["install", "@underscore-audio/sdk", "/tmp/tarballs/supersonic-scsynth-0.14.0.tgz"],
+      [
+        "install",
+        "@underscore-audio/sdk",
+        "/tmp/tarballs/supersonic-scsynth-0.70.0.tgz",
+        SUPERSONIC_CORE_SPEC,
+      ],
       { cwd: "/tmp/app" }
     );
   });
@@ -138,8 +163,6 @@ describe("copyWasmAssets", () => {
     const run = vi.fn(async () => {
       throw new Error("bad bin");
     });
-    await expect(copyWasmAssets(project(), { run })).rejects.toThrow(
-      /underscore-sdk copy failed/
-    );
+    await expect(copyWasmAssets(project(), { run })).rejects.toThrow(/underscore-sdk copy failed/);
   });
 });

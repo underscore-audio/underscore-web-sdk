@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-21
+
+### Changed
+
+- **Breaking:** supersonic peer range is now `>=0.70.0 <1.0.0` (was
+  `^0.14.0`), and `supersonic-scsynth-core` is a new peer dependency.
+  Upstream split the runtime in 0.6x into `supersonic-scsynth` (JS
+  client + OSC workers) and `supersonic-scsynth-core` (scsynth WASM +
+  AudioWorklet); the old range made the SDK uninstallable next to any
+  current supersonic release.
+- The audio engine speaks the 0.70 supersonic API: engine options are
+  passed to the `SuperSonic` constructor (with `coreBaseURL` derived
+  from `wasmBaseUrl`), `init()` takes no arguments, and the master
+  volume splice uses the public `node` routing seam instead of the
+  private `workletNode` field. The SDK's public config (`wasmBaseUrl`,
+  `workerBaseUrl`) is unchanged.
+- `npx underscore-sdk <dir>` (copy-assets) now copies from both
+  packages, producing `wasm/` (engine from supersonic-scsynth-core)
+  and `workers/` (OSC workers + AudioWorklet) under the target
+  directory, and resolves package locations through Node resolution
+  instead of fixed node_modules paths.
+- Synthdef bytes are passed to the engine directly instead of through
+  a base64 `data:` URL; 0.70 accepts `ArrayBuffer` input natively.
+- The install wizard installs all three packages
+  (`@underscore-audio/sdk`, `supersonic-scsynth`,
+  `supersonic-scsynth-core`) with ranges read from the SDK's
+  `peerDependencies` (wizard 0.2.0).
+- Sample bytes (`loadSampleFromData`) are passed to the engine
+  directly, matching the synthdef path; the Blob/`createObjectURL`
+  detour is gone.
+
 ## [0.4.0] - 2026-07-21
 
 ### Added

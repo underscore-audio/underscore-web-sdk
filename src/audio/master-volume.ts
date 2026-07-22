@@ -79,20 +79,21 @@ export function clampMasterVolume(value: number): ClampedMasterVolume {
 }
 
 /**
- * Splice a single GainNode between the scsynth AudioWorklet and the
+ * Splice a single GainNode between the scsynth output and the
  * AudioContext destination so consumers can adjust output level at
- * the bus level without touching per-voice `amp`. Supersonic wires the
- * worklet directly to `destination` during its own init, so we
- * disconnect, then re-route `worklet -> masterGain -> destination`.
+ * the bus level without touching per-voice `amp`. Supersonic wires its
+ * output node directly to `destination` during its own init, so we
+ * disconnect, then re-route `node -> masterGain -> destination`.
  * `gain.value` is initialized to `initialVolume` so a `setMasterVolume`
  * call made before init is honored once the graph exists.
  *
- * `workletNode` is a private Supersonic field that the SDK types in
- * its local d.ts. If Supersonic ever renames or drops that field the
- * SDK build breaks at this call site instead of silently shipping a
- * bypassed master bus. The runtime null-check warns when the field
- * does not exist at runtime so unexpected nulls (e.g. an older
- * supersonic build that has not populated it) are also visible.
+ * `node` is Supersonic's public routing seam (0.70+), documented for
+ * exactly this disconnect-and-reroute pattern. It is modelled in the
+ * SDK's local d.ts, so an upstream rename becomes a compile error at
+ * this call site instead of a silently bypassed master bus. The
+ * runtime null-check warns when the accessor is unexpectedly null
+ * (e.g. an engine that has not finished init) so that case is also
+ * visible.
  *
  * Returns the spliced GainNode, or `null` when the splice was skipped
  * (audio still plays via Supersonic's default wiring; setMasterVolume
@@ -101,11 +102,11 @@ export function clampMasterVolume(value: number): ClampedMasterVolume {
  */
 export function spliceMasterGain(sonic: SuperSonic, initialVolume: number): GainNode | null {
   const ctx = sonic.audioContext;
-  const workletNode = sonic.workletNode;
-  if (!ctx || !workletNode) {
+  const node = sonic.node;
+  if (!ctx || !node) {
     console.warn(
       "[underscore-sdk] master GainNode splice skipped: " +
-        "supersonic-scsynth did not expose audioContext/workletNode " +
+        "supersonic-scsynth did not expose audioContext/node " +
         "after init(). Audio will play but setMasterVolume will be a no-op. " +
         "This usually means supersonic-scsynth changed its internal shape; " +
         "open an SDK issue with your supersonic-scsynth version."
@@ -115,17 +116,16 @@ export function spliceMasterGain(sonic: SuperSonic, initialVolume: number): Gain
   const masterGain = ctx.createGain();
   masterGain.gain.value = initialVolume;
   try {
-    workletNode.disconnect(ctx.destination);
+    node.disconnect();
   } catch {
     /*
-     * Older Supersonic builds may already have failed the original
-     * destination connect, or may have wired the worklet through a
-     * different node. A best-effort disconnect followed by an
+     * The engine may have wired its output through a different node or
+     * not connected it at all. A best-effort disconnect followed by an
      * explicit re-connect is correct in either case; we never want a
      * routing exception to break engine init.
      */
   }
-  workletNode.connect(masterGain);
+  node.connect(masterGain);
   masterGain.connect(ctx.destination);
   return masterGain;
 }
