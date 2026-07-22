@@ -64,6 +64,69 @@ describe("generation", () => {
       expect(result.streamUrl).toBe("/api/stream/cmp_123/job_abc");
     });
 
+    it("includes complexity and model in the request body when provided", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jobId: "job_abc",
+            streamUrl: "/api/stream/cmp_123/job_abc",
+          }),
+      });
+
+      const { startGeneration } = await import("./generation.js");
+
+      await startGeneration("https://api.test.com", "us_sec_test_key", {
+        compositionId: "cmp_123",
+        description: "Make a warm pad",
+        complexity: "fast",
+        model: "some-model-id",
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.test.com/api/v1/compositions/cmp_123/generate",
+        expect.objectContaining({
+          body: JSON.stringify({
+            description: "Make a warm pad",
+            complexity: "fast",
+            model: "some-model-id",
+          }),
+        })
+      );
+    });
+
+    /*
+     * The API rejects unknown/null body keys (additionalProperties:
+     * false), so a partially-specified options bag must serialize only
+     * the keys the caller actually set. The exact-string assertion pins
+     * that `model` is absent, not null.
+     */
+    it("omits unset knobs from the request body", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            jobId: "job_abc",
+            streamUrl: "/api/stream/cmp_123/job_abc",
+          }),
+      });
+
+      const { startGeneration } = await import("./generation.js");
+
+      await startGeneration("https://api.test.com", "us_sec_test_key", {
+        compositionId: "cmp_123",
+        description: "Make a warm pad",
+        complexity: "rich",
+      });
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://api.test.com/api/v1/compositions/cmp_123/generate",
+        expect.objectContaining({
+          body: JSON.stringify({ description: "Make a warm pad", complexity: "rich" }),
+        })
+      );
+    });
+
     it("throws ApiError with server message on HTTP failure", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
@@ -281,6 +344,32 @@ describe("generation", () => {
       });
     });
 
+    it("maps status to progress", async () => {
+      const { mapBackendEvent } = await import("./generation.js");
+      expect(
+        mapBackendEvent({ type: "status", content: "compilation failed, retrying (2/3)..." })
+      ).toEqual({
+        type: "progress",
+        content: "compilation failed, retrying (2/3)...",
+      });
+    });
+
+    it("maps repair_started to progress with the attempt number", async () => {
+      const { mapBackendEvent } = await import("./generation.js");
+      expect(mapBackendEvent({ type: "repair_started", attempt: 2 })).toEqual({
+        type: "progress",
+        content: "Repairing synth (attempt 2)",
+      });
+    });
+
+    it("maps repair_started without an attempt to a generic label", async () => {
+      const { mapBackendEvent } = await import("./generation.js");
+      expect(mapBackendEvent({ type: "repair_started" })).toEqual({
+        type: "progress",
+        content: "Repairing synth",
+      });
+    });
+
     it("maps complete to ready", async () => {
       const { mapBackendEvent } = await import("./generation.js");
       expect(mapBackendEvent({ type: "complete", synthName: "warm_pad" })).toEqual({
@@ -306,6 +395,19 @@ describe("generation", () => {
       const result = mapBackendEvent(unmapped);
       expect(result?.type).toBe("raw");
       expect(result?.raw).toEqual(unmapped);
+    });
+
+    /*
+     * The backend removed the `declined` SSE event (declines now arrive
+     * as `error`), so the SDK dropped its mapping. Pin the fallthrough
+     * so nobody reintroduces a first-class branch for a dead event type.
+     */
+    it("treats the retired declined type as an unmapped raw event", async () => {
+      const { mapBackendEvent } = await import("./generation.js");
+      const retired = { type: "declined", reason: "off-topic" };
+      const result = mapBackendEvent(retired);
+      expect(result?.type).toBe("raw");
+      expect(result?.raw).toEqual(retired);
     });
   });
 });

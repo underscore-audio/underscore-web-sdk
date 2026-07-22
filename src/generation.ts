@@ -20,13 +20,38 @@
  */
 
 import type { GenerationEvent } from "./types.js";
+import type { GenerateRequest } from "./generated/api-types.js";
 import { ApiError } from "./errors.js";
 import { GenerateResponseSchema } from "./schemas.js";
 
 export interface StartGenerationOptions {
   compositionId: string;
   description: string;
+  /**
+   * Speed-vs-richness dial for the generation job.
+   *
+   *   - `"fast"`: lowest latency, small dense synth. For latency-sensitive
+   *     callers (e.g. generating during gameplay).
+   *   - `"balanced"`: the default single-shot behavior.
+   *   - `"rich"`: maximum musical richness at the cost of generation time.
+   *
+   * Omit to preserve the historical default (same as `"balanced"`).
+   */
+  complexity?: GenerateRequest["complexity"];
+  /**
+   * Explicit model override for callers that want to pin a specific
+   * model. Valid values are defined by the backend and change as models
+   * are added or retired; prefer `complexity`, which is stable across
+   * model generations.
+   */
+  model?: GenerateRequest["model"];
 }
+
+/**
+ * Generation tuning knobs shared by the `Underscore` client methods.
+ * Subset of {@link StartGenerationOptions} without the addressing fields.
+ */
+export type GenerationOptions = Pick<StartGenerationOptions, "complexity" | "model">;
 
 export interface StartGenerationResult {
   jobId: string;
@@ -48,15 +73,21 @@ export async function startGeneration(
   apiKey: string,
   options: StartGenerationOptions
 ): Promise<StartGenerationResult> {
-  const { compositionId, description } = options;
+  const { compositionId, description, complexity, model } = options;
 
+  /*
+   * JSON.stringify drops undefined-valued keys, so omitted knobs never
+   * reach the wire and the server applies its historical single-shot
+   * default. The API rejects unknown body keys, so this omission (rather
+   * than sending nulls) is load-bearing.
+   */
   const response = await fetch(`${baseUrl}/api/v1/compositions/${compositionId}/generate`, {
     method: "POST",
     headers: {
       "Underscore-API-Key": apiKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ description }),
+    body: JSON.stringify({ description, complexity, model }),
   });
 
   if (!response.ok) {
@@ -268,6 +299,7 @@ interface BackendEvent {
   technical?: string;
   friendly?: string;
   reason?: string;
+  attempt?: number;
 }
 
 /*
@@ -276,6 +308,10 @@ interface BackendEvent {
  * names before emitting to clients, so we do not need to handle `llm.*`
  * variants here. Unmapped events are surfaced as `{ type: "raw" }` so
  * power users can introspect the full protocol without SDK changes.
+ *
+ * The former `declined` event no longer exists server-side; declined
+ * requests now arrive as regular `error` events, so there is no branch
+ * for it here.
  */
 export function mapBackendEvent(data: BackendEvent): GenerationEvent | null {
   switch (data.type) {
@@ -284,6 +320,18 @@ export function mapBackendEvent(data: BackendEvent): GenerationEvent | null {
 
     case "phase_change":
       return { type: "progress", content: data.phase };
+
+    case "status":
+      return { type: "progress", content: data.content };
+
+    case "repair_started":
+      return {
+        type: "progress",
+        content:
+          data.attempt !== undefined
+            ? `Repairing synth (attempt ${data.attempt})`
+            : "Repairing synth",
+      };
 
     case "code":
       return { type: "code", content: data.content };
@@ -302,9 +350,6 @@ export function mapBackendEvent(data: BackendEvent): GenerationEvent | null {
         type: "error",
         error: data.technical || data.friendly || "Unknown error",
       };
-
-    case "declined":
-      return { type: "error", error: data.reason || data.content || "Request declined" };
 
     default:
       return { type: "raw", raw: data as unknown as Record<string, unknown> };

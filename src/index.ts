@@ -30,6 +30,7 @@ import {
   startGeneration,
   subscribeToGeneration,
   streamGeneration,
+  type GenerationOptions,
   type StartGenerationResult,
 } from "./generation.js";
 import { createLogger, type Logger } from "./debug.js";
@@ -50,6 +51,7 @@ export { UnderscoreError, ApiError, AudioError, SynthError, ValidationError } fr
 export {
   startGeneration,
   subscribeToGeneration,
+  type GenerationOptions,
   type StartGenerationOptions,
   type StartGenerationResult,
   type SubscribeToGenerationOptions,
@@ -182,13 +184,19 @@ export class Underscore {
    *
    * This is the safe entry point for the backend-proxy pattern:
    * secret key never touches the browser.
+   *
+   * @param options Optional tuning knobs: `complexity` trades speed
+   *   against musical richness (`"fast" | "balanced" | "rich"`);
+   *   `model` pins a specific backend model. Omit both for the
+   *   default single-shot behavior.
    */
   async startGeneration(
     compositionId: string,
-    description: string
+    description: string,
+    options: GenerationOptions = {}
   ): Promise<StartGenerationResult> {
     const baseUrl = this.config.baseUrl || DEFAULT_API_BASE_URL;
-    return startGeneration(baseUrl, this.config.apiKey, { compositionId, description });
+    return startGeneration(baseUrl, this.config.apiKey, { compositionId, description, ...options });
   }
 
   /**
@@ -246,16 +254,20 @@ export class Underscore {
    * Third-party browser apps must use the backend-proxy pattern instead:
    * run `startGeneration` on your server, forward the returned
    * `streamUrl` to the browser, and call `subscribeToGeneration` there.
+   *
+   * @param options Optional tuning knobs, see {@link Underscore.startGeneration}.
    */
   async *generate(
     compositionId: string,
-    description: string
+    description: string,
+    options: GenerationOptions = {}
   ): AsyncGenerator<GenerationEvent & { synth?: Synth }> {
     const baseUrl = this.config.baseUrl || DEFAULT_API_BASE_URL;
 
     for await (const event of streamGeneration(baseUrl, this.config.apiKey, {
       compositionId,
       description,
+      ...options,
     })) {
       if (event.type === "ready" && event.synthName) {
         try {
