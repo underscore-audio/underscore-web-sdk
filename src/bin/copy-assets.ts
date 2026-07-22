@@ -22,7 +22,16 @@ import { promises as fs } from "fs";
 import { join, dirname } from "path";
 import { createRequire } from "module";
 
-async function copyDir(src: string, dest: string): Promise<void> {
+export interface CopySupersonicAssetsDeps {
+  /**
+   * Injection seam for tests. Defaults to Node resolution from this
+   * module's location (the installed bin inside the consumer tree).
+   */
+  resolvePackageDir?: (packageName: string) => string;
+  log?: (message: string) => void;
+}
+
+async function copyDir(src: string, dest: string, log: (message: string) => void): Promise<void> {
   await fs.mkdir(dest, { recursive: true });
   const entries = await fs.readdir(src, { withFileTypes: true });
 
@@ -31,10 +40,10 @@ async function copyDir(src: string, dest: string): Promise<void> {
     const destPath = join(dest, entry.name);
 
     if (entry.isDirectory()) {
-      await copyDir(srcPath, destPath);
+      await copyDir(srcPath, destPath, log);
     } else {
       await fs.copyFile(srcPath, destPath);
-      console.log(`  Copied: ${entry.name}`);
+      log(`  Copied: ${entry.name}`);
     }
   }
 }
@@ -47,7 +56,7 @@ async function copyDir(src: string, dest: string): Promise<void> {
  * starts from this bin's installed location, which by construction
  * sits inside the consumer's node_modules tree.
  */
-function resolvePackageDir(packageName: string): string {
+export function resolvePackageDir(packageName: string): string {
   const require = createRequire(import.meta.url);
   try {
     return dirname(require.resolve(packageName));
@@ -57,6 +66,36 @@ function resolvePackageDir(packageName: string): string {
         `npm install supersonic-scsynth supersonic-scsynth-core`
     );
   }
+}
+
+/**
+ * Copy the dual-package supersonic runtime into `targetDir` as
+ * `wasm/` + `workers/`. Exported so unit tests can pin the layout
+ * without spawning the CLI.
+ */
+export async function copySupersonicAssets(
+  targetDir: string,
+  deps: CopySupersonicAssetsDeps = {}
+): Promise<void> {
+  const resolve = deps.resolvePackageDir ?? resolvePackageDir;
+  const log = deps.log ?? ((message: string) => console.log(message));
+
+  /*
+   * supersonic-scsynth's main is dist/supersonic.js, so resolving the
+   * module lands in dist/ directly; core's main is index.js at the
+   * package root, which holds wasm/ and workers/ as siblings.
+   */
+  const supersonicDist = resolve("supersonic-scsynth");
+  const coreRoot = resolve("supersonic-scsynth-core");
+  log(`Found supersonic-scsynth at: ${supersonicDist}`);
+  log(`Found supersonic-scsynth-core at: ${coreRoot}\n`);
+
+  log("Copying WASM engine:");
+  await copyDir(join(coreRoot, "wasm"), join(targetDir, "wasm"), log);
+
+  log("\nCopying worker files:");
+  await copyDir(join(supersonicDist, "workers"), join(targetDir, "workers"), log);
+  await copyDir(join(coreRoot, "workers"), join(targetDir, "workers"), log);
 }
 
 async function main(): Promise<void> {
@@ -85,23 +124,7 @@ correct MIME types.
   console.log("Underscore SDK - Copying WASM assets...\n");
 
   try {
-    /*
-     * supersonic-scsynth's main is dist/supersonic.js, so resolving the
-     * module lands in dist/ directly; core's main is index.js at the
-     * package root, which holds wasm/ and workers/ as siblings.
-     */
-    const supersonicDist = resolvePackageDir("supersonic-scsynth");
-    const coreRoot = resolvePackageDir("supersonic-scsynth-core");
-    console.log(`Found supersonic-scsynth at: ${supersonicDist}`);
-    console.log(`Found supersonic-scsynth-core at: ${coreRoot}\n`);
-
-    console.log("Copying WASM engine:");
-    await copyDir(join(coreRoot, "wasm"), join(targetDir, "wasm"));
-
-    console.log("\nCopying worker files:");
-    await copyDir(join(supersonicDist, "workers"), join(targetDir, "workers"));
-    await copyDir(join(coreRoot, "workers"), join(targetDir, "workers"));
-
+    await copySupersonicAssets(targetDir);
     console.log(`
 Assets copied successfully to: ${targetDir}
 
@@ -120,7 +143,13 @@ Next steps:
   }
 }
 
-main().catch((error) => {
-  console.error("Fatal error:", error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+const isDirectRun =
+  process.argv[1] !== undefined &&
+  (process.argv[1].endsWith("copy-assets.js") || process.argv[1].endsWith("copy-assets.ts"));
+
+if (isDirectRun) {
+  main().catch((error) => {
+    console.error("Fatal error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  });
+}

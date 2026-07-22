@@ -8,6 +8,7 @@
 
 import { describe, it, expect, vi } from "vitest";
 import { installDependencies, copyWasmAssets } from "./install.js";
+import { sdkInstallPackages } from "./sdk-peers.js";
 import type { DetectedProject, WizardOptions } from "./types.js";
 
 function project(overrides: Partial<DetectedProject> = {}): DetectedProject {
@@ -35,15 +36,23 @@ function options(overrides: Partial<WizardOptions> = {}): WizardOptions {
   };
 }
 
-const SUPERSONIC_SPEC = "supersonic-scsynth@>=0.70.0 <1.0.0";
-const SUPERSONIC_CORE_SPEC = "supersonic-scsynth-core@>=0.70.0 <1.0.0";
+/*
+ * Expected install specs come from the same helper production uses, so
+ * a peer-range bump in the SDK package.json updates these assertions
+ * automatically. The drift test in sdk-peers.test.ts is what keeps
+ * that helper honest against the canonical package.json.
+ */
+const SDK_PACKAGES = sdkInstallPackages();
+const SUPERSONIC_CORE_SPEC = SDK_PACKAGES.find((s) =>
+  s.startsWith("supersonic-scsynth-core@")
+)!;
 
 describe("installDependencies", () => {
   it.each([
-    ["npm", "npm", ["install", "@underscore-audio/sdk", SUPERSONIC_SPEC, SUPERSONIC_CORE_SPEC]],
-    ["pnpm", "pnpm", ["add", "@underscore-audio/sdk", SUPERSONIC_SPEC, SUPERSONIC_CORE_SPEC]],
-    ["yarn", "yarn", ["add", "@underscore-audio/sdk", SUPERSONIC_SPEC, SUPERSONIC_CORE_SPEC]],
-    ["bun", "bun", ["add", "@underscore-audio/sdk", SUPERSONIC_SPEC, SUPERSONIC_CORE_SPEC]],
+    ["npm", "npm", ["install", ...SDK_PACKAGES]],
+    ["pnpm", "pnpm", ["add", ...SDK_PACKAGES]],
+    ["yarn", "yarn", ["add", ...SDK_PACKAGES]],
+    ["bun", "bun", ["add", ...SDK_PACKAGES]],
   ] as const)("runs %s with the right args", async (pm, expectedCmd, expectedArgs) => {
     const run = vi.fn(async () => {});
     await installDependencies(project({ packageManager: pm }), options(), { run });
@@ -97,7 +106,7 @@ describe("installDependencies", () => {
     );
     expect(run).toHaveBeenCalledWith(
       "pnpm",
-      ["add", "/tmp/tarballs/underscore-sdk-0.1.0.tgz", SUPERSONIC_SPEC, SUPERSONIC_CORE_SPEC],
+      ["add", "/tmp/tarballs/underscore-sdk-0.1.0.tgz", ...SDK_PACKAGES.slice(1)],
       { cwd: "/tmp/app" }
     );
   });
@@ -154,8 +163,6 @@ describe("copyWasmAssets", () => {
     const run = vi.fn(async () => {
       throw new Error("bad bin");
     });
-    await expect(copyWasmAssets(project(), { run })).rejects.toThrow(
-      /underscore-sdk copy failed/
-    );
+    await expect(copyWasmAssets(project(), { run })).rejects.toThrow(/underscore-sdk copy failed/);
   });
 });

@@ -139,14 +139,13 @@ export class AudioEngine {
 
     /*
      * Hold the freshly-constructed instance in a local. After the
-     * `await sonic.init(...)` below, the watchdog timeout may have
+     * `await sonic.init()` below, the watchdog timeout may have
      * already won the race and detached `this.sonic` (setting it to
      * null in the catch arm of initWithWatchdog). Using a local
      * reference for the rest of doInit keeps the splice safe against
      * that race, and the `this.sonic !== sonic` check at the resume
      * point is the explicit late-resolve bailout.
-     */
-    /*
+     *
      * `coreBaseURL` points supersonic at the GPL core assets (WASM +
      * AudioWorklet from supersonic-scsynth-core); wasm resolves to
      * `coreBaseURL + 'wasm/'` and the worklet to `coreBaseURL +
@@ -274,21 +273,20 @@ export class AudioEngine {
   /**
    * Load a single sample from binary data.
    *
+   * Bytes are handed to the engine directly for the same reason as
+   * {@link loadSynthdefFromData}: since 0.70 `loadSample` accepts an
+   * ArrayBuffer as a first-class input, so the previous Blob /
+   * `createObjectURL` detour (and its HEAD-probe / revoke races) is
+   * unnecessary.
+   *
    * @param bufferNum - Buffer number to load into
    * @param data - Audio data as ArrayBuffer
    */
   async loadSampleFromData(bufferNum: number, data: ArrayBuffer): Promise<void> {
     await this.init();
 
-    const blob = new Blob([data], { type: "audio/wav" });
-    const url = URL.createObjectURL(blob);
-
-    try {
-      await this.sonic!.loadSample(bufferNum, url);
-      this.loadedBuffers.add(bufferNum);
-    } finally {
-      URL.revokeObjectURL(url);
-    }
+    await this.sonic!.loadSample(bufferNum, data);
+    this.loadedBuffers.add(bufferNum);
 
     await this.sonic!.sync();
   }
@@ -397,8 +395,8 @@ export class AudioEngine {
       console.warn(
         "[underscore-sdk] setMasterVolume called but master GainNode is not " +
           "spliced; value is cached and will apply once init() succeeds. If " +
-          "this persists after init(), the audio engine's worklet shape may " +
-          "have changed."
+          "this persists after init(), the audio engine's node/audioContext " +
+          "shape may have changed."
       );
       return;
     }

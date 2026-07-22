@@ -18,21 +18,13 @@ declare module "supersonic-scsynth" {
   export interface ScsynthOptions {
     numBuffers?: number;
     realTimeMemorySize?: number;
-    numInputBusChannels?: number;
-    numOutputBusChannels?: number;
   }
 
   export interface SuperSonicOptions {
-    /** Convenience shorthand when all assets are co-located. */
-    baseURL?: string;
     /** Base URL for GPL assets: WASM + AudioWorklet (supersonic-scsynth-core). */
     coreBaseURL?: string;
-    /** Base URL for MIT worker scripts. Defaults to `baseURL + 'workers/'`. */
+    /** Base URL for MIT worker scripts. */
     workerBaseURL?: string;
-    /** Base URL for WASM files. Defaults to `coreBaseURL + 'wasm/'`. */
-    wasmBaseURL?: string;
-    /** 'postMessage' (default, no special headers) or 'sab' (needs COOP/COEP). */
-    mode?: "postMessage" | "sab";
     /** Engine options passed to scsynth World_New(). */
     scsynthOptions?: ScsynthOptions;
     /** Options passed to `new AudioContext()`. */
@@ -62,7 +54,10 @@ declare module "supersonic-scsynth" {
      * by the SDK, so they are deliberately not modelled here.
      */
     loadSynthDef(source: string | ArrayBuffer | ArrayBufferView | Blob): Promise<unknown>;
-    loadSample(bufferNum: number, url: string): Promise<unknown>;
+    loadSample(
+      bufferNum: number,
+      source: string | ArrayBuffer | ArrayBufferView | Blob
+    ): Promise<unknown>;
     sync(syncId?: number): Promise<void>;
     send(command: string, ...args: (string | number)[]): void;
     shutdown(): Promise<void>;

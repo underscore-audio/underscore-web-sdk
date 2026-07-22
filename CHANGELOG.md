@@ -32,8 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a base64 `data:` URL; 0.70 accepts `ArrayBuffer` input natively.
 - The install wizard installs all three packages
   (`@underscore-audio/sdk`, `supersonic-scsynth`,
-  `supersonic-scsynth-core`) with ranges matching the SDK peers
-  (wizard 0.2.0).
+  `supersonic-scsynth-core`) with ranges read from the SDK's
+  `peerDependencies` (wizard 0.2.0).
+- Sample bytes (`loadSampleFromData`) are passed to the engine
+  directly, matching the synthdef path; the Blob/`createObjectURL`
+  detour is gone.
 
 ## [0.4.0] - 2026-07-21
 
