@@ -1,6 +1,6 @@
 {
   "name": "@underscore-audio/wizard",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "type": "module",
   "description": "Install and configure Underscore in an existing web project in under five minutes",
   "main": "./dist/index.js",

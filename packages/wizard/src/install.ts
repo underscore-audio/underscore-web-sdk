@@ -24,14 +24,22 @@ export interface InstallDependencies {
 }
 
 /*
- * We pin supersonic-scsynth here to the same range the SDK declares as a
- * peer dependency (^0.14.0). Without a version specifier npm resolves to
- * latest, which at the time of writing is 0.66 -- a major that relocated
- * the WASM assets away from `dist/wasm/`. copyWasmAssets would then fail
- * silently for every new user. Tests that use tarballOverrides replace
- * the spec wholesale, so the pin only ever affects real installs.
+ * Since the supersonic 0.6x split the runtime ships as two packages --
+ * `supersonic-scsynth` (MIT JS client + OSC workers) and
+ * `supersonic-scsynth-core` (GPL scsynth WASM + AudioWorklet) -- and
+ * the SDK's copy-assets bin needs both installed. Their ranges are
+ * pinned to the same range the SDK declares as peer dependencies:
+ * without a specifier npm resolves to latest, and an upstream release
+ * outside the SDK's tested range could relocate runtime assets and
+ * break copyWasmAssets for every new user. Tests that use
+ * tarballOverrides replace the specs wholesale, so the pins only ever
+ * affect real installs.
  */
-const SDK_PACKAGES = ["@underscore-audio/sdk", "supersonic-scsynth@^0.14.0"] as const;
+const SDK_PACKAGES = [
+  "@underscore-audio/sdk",
+  "supersonic-scsynth@>=0.70.0 <1.0.0",
+  "supersonic-scsynth-core@>=0.70.0 <1.0.0",
+] as const;
 
 /**
  * Package-manager specific install commands. Kept as a data table so the
@@ -50,9 +58,10 @@ function installCommand(
 ): { cmd: string; args: string[] } {
   /*
    * SDK_PACKAGES entries may include version specifiers (e.g.
-   * "supersonic-scsynth@^0.14.0") so we strip the @version tail when
-   * looking up the overrides map. Override keys are bare package names
-   * ("supersonic-scsynth"), which matches how a caller would write them.
+   * "supersonic-scsynth@>=0.70.0 <1.0.0") so we strip the @version tail
+   * when looking up the overrides map. Override keys are bare package
+   * names ("supersonic-scsynth"), which matches how a caller would
+   * write them.
    */
   const resolved = SDK_PACKAGES.map((spec) => {
     const bareName = spec.startsWith("@")

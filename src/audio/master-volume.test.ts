@@ -61,17 +61,17 @@ describe("clampMasterVolume", () => {
 
 describe("spliceMasterGain skipped path", () => {
   /*
-   * The splice reaches through supersonic-scsynth's `workletNode`
-   * field (private upstream, modelled in the SDK's local d.ts) to
-   * insert a master GainNode. If upstream ever renames or drops that
-   * field, the splice silently no-ops and the master bus is bypassed
-   * -- audio still plays but `setMasterVolume` becomes a black hole.
-   * The warn is the regression sentinel: a consumer report against
-   * a future supersonic version will show this string in the console
-   * and point straight at the broken splice. Pin it so the sentinel
-   * itself cannot bit-rot.
+   * The splice goes through supersonic-scsynth's public `node`
+   * accessor (modelled in the SDK's local d.ts) to insert a master
+   * GainNode. If upstream ever renames or drops that accessor, the
+   * splice silently no-ops and the master bus is bypassed -- audio
+   * still plays but `setMasterVolume` becomes a black hole. The warn
+   * is the regression sentinel: a consumer report against a future
+   * supersonic version will show this string in the console and point
+   * straight at the broken splice. Pin it so the sentinel itself
+   * cannot bit-rot.
    */
-  it("returns null and warns when supersonic-scsynth exposes audioContext but no workletNode", () => {
+  it("returns null and warns when supersonic-scsynth exposes audioContext but no node", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const fakeCtx = {
@@ -80,7 +80,7 @@ describe("spliceMasterGain skipped path", () => {
       } as unknown as AudioContext;
       const sonic = {
         audioContext: fakeCtx,
-        workletNode: null,
+        node: null,
       } as unknown as SuperSonic;
 
       const result = spliceMasterGain(sonic, 1);
@@ -90,12 +90,12 @@ describe("spliceMasterGain skipped path", () => {
         expect.stringContaining("master GainNode splice skipped")
       );
       /*
-       * Ensure the warn message names workletNode/audioContext so a
-       * future reader can grep straight from a user-supplied console
-       * snippet to this splice. A regression that drops the hint would
-       * make field reports much harder to triage.
+       * Ensure the warn message names node/audioContext so a future
+       * reader can grep straight from a user-supplied console snippet
+       * to this splice. A regression that drops the hint would make
+       * field reports much harder to triage.
        */
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("workletNode"));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("audioContext/node"));
       expect(fakeCtx.createGain).not.toHaveBeenCalled();
     } finally {
       warnSpy.mockRestore();

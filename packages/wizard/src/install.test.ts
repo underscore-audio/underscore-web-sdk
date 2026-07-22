@@ -35,12 +35,15 @@ function options(overrides: Partial<WizardOptions> = {}): WizardOptions {
   };
 }
 
+const SUPERSONIC_SPEC = "supersonic-scsynth@>=0.70.0 <1.0.0";
+const SUPERSONIC_CORE_SPEC = "supersonic-scsynth-core@>=0.70.0 <1.0.0";
+
 describe("installDependencies", () => {
   it.each([
-    ["npm", "npm", ["install", "@underscore-audio/sdk", "supersonic-scsynth@^0.14.0"]],
-    ["pnpm", "pnpm", ["add", "@underscore-audio/sdk", "supersonic-scsynth@^0.14.0"]],
-    ["yarn", "yarn", ["add", "@underscore-audio/sdk", "supersonic-scsynth@^0.14.0"]],
-    ["bun", "bun", ["add", "@underscore-audio/sdk", "supersonic-scsynth@^0.14.0"]],
+    ["npm", "npm", ["install", "@underscore-audio/sdk", SUPERSONIC_SPEC, SUPERSONIC_CORE_SPEC]],
+    ["pnpm", "pnpm", ["add", "@underscore-audio/sdk", SUPERSONIC_SPEC, SUPERSONIC_CORE_SPEC]],
+    ["yarn", "yarn", ["add", "@underscore-audio/sdk", SUPERSONIC_SPEC, SUPERSONIC_CORE_SPEC]],
+    ["bun", "bun", ["add", "@underscore-audio/sdk", SUPERSONIC_SPEC, SUPERSONIC_CORE_SPEC]],
   ] as const)("runs %s with the right args", async (pm, expectedCmd, expectedArgs) => {
     const run = vi.fn(async () => {});
     await installDependencies(project({ packageManager: pm }), options(), { run });
@@ -64,6 +67,7 @@ describe("installDependencies", () => {
         tarballOverrides: {
           "@underscore-audio/sdk": "/tmp/tarballs/underscore-sdk-0.1.0.tgz",
           "supersonic-scsynth": "/tmp/tarballs/supersonic-scsynth-1.2.3.tgz",
+          "supersonic-scsynth-core": "/tmp/tarballs/supersonic-scsynth-core-1.2.3.tgz",
         },
       }),
       { run }
@@ -74,6 +78,7 @@ describe("installDependencies", () => {
         "install",
         "/tmp/tarballs/underscore-sdk-0.1.0.tgz",
         "/tmp/tarballs/supersonic-scsynth-1.2.3.tgz",
+        "/tmp/tarballs/supersonic-scsynth-core-1.2.3.tgz",
       ],
       { cwd: "/tmp/app" }
     );
@@ -92,25 +97,36 @@ describe("installDependencies", () => {
     );
     expect(run).toHaveBeenCalledWith(
       "pnpm",
-      ["add", "/tmp/tarballs/underscore-sdk-0.1.0.tgz", "supersonic-scsynth@^0.14.0"],
+      ["add", "/tmp/tarballs/underscore-sdk-0.1.0.tgz", SUPERSONIC_SPEC, SUPERSONIC_CORE_SPEC],
       { cwd: "/tmp/app" }
     );
   });
 
   it("matches tarballOverrides keys by bare package name, ignoring version specifier", async () => {
+    /*
+     * The core override key is a strict prefix-extension of the
+     * supersonic-scsynth key, so this test also pins that the bare-name
+     * lookup is exact-match: the supersonic-scsynth tarball must not
+     * be substituted for supersonic-scsynth-core or vice versa.
+     */
     const run = vi.fn(async () => {});
     await installDependencies(
       project({ packageManager: "npm" }),
       options({
         tarballOverrides: {
-          "supersonic-scsynth": "/tmp/tarballs/supersonic-scsynth-0.14.0.tgz",
+          "supersonic-scsynth": "/tmp/tarballs/supersonic-scsynth-0.70.0.tgz",
         },
       }),
       { run }
     );
     expect(run).toHaveBeenCalledWith(
       "npm",
-      ["install", "@underscore-audio/sdk", "/tmp/tarballs/supersonic-scsynth-0.14.0.tgz"],
+      [
+        "install",
+        "@underscore-audio/sdk",
+        "/tmp/tarballs/supersonic-scsynth-0.70.0.tgz",
+        SUPERSONIC_CORE_SPEC,
+      ],
       { cwd: "/tmp/app" }
     );
   });

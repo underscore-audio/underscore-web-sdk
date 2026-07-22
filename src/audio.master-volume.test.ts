@@ -10,7 +10,7 @@
  *
  * Lives in its own file because it relies on a module-wide mock of
  * `supersonic-scsynth` that simulates a fully-initialised engine
- * (workletNode + audioContext present), which would conflict with the
+ * (node + audioContext present), which would conflict with the
  * pre-init paths exercised in `audio.test.ts`.
  */
 
@@ -34,7 +34,7 @@ class FakeAudioContext {
   createGain = (): FakeGainNode => new FakeGainNode();
 }
 
-class FakeWorkletNode {
+class FakeEngineNode {
   connect = vi.fn();
   disconnect = vi.fn();
 }
@@ -42,7 +42,7 @@ class FakeWorkletNode {
 vi.mock("supersonic-scsynth", () => ({
   SuperSonic: class {
     audioContext: FakeAudioContext = new FakeAudioContext();
-    workletNode: FakeWorkletNode = new FakeWorkletNode();
+    node: FakeEngineNode = new FakeEngineNode();
     init(): Promise<void> {
       return Promise.resolve();
     }

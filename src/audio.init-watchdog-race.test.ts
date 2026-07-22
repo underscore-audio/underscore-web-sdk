@@ -25,8 +25,8 @@ let initResolver: (() => void) | null = null;
 const shutdownSpy = vi.fn(async () => {});
 
 /*
- * The fake instance must carry audioContext + workletNode so the
- * late-resolve branch reaches the splice point (the bug surface) if the
+ * The fake instance must carry audioContext + node so the late-resolve
+ * branch reaches the splice point (the bug surface) if the
  * attempt-token bailout regresses. Without these fields, a regressed
  * doInit would just spliceMasterGain-noop instead of dereferencing a
  * stale `this.sonic` and the race coverage would be silent.
@@ -37,7 +37,7 @@ class FakeGain {
   connect = vi.fn();
   disconnect = vi.fn();
 }
-class FakeWorklet {
+class FakeEngineNode {
   connect = vi.fn();
   disconnect = vi.fn();
 }
@@ -50,7 +50,7 @@ class FakeAudioContext {
 vi.mock("supersonic-scsynth", () => ({
   SuperSonic: class {
     audioContext: FakeAudioContext = new FakeAudioContext();
-    workletNode: FakeWorklet = new FakeWorklet();
+    node: FakeEngineNode = new FakeEngineNode();
     init(): Promise<void> {
       return new Promise<void>((resolve) => {
         initResolver = resolve;

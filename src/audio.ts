@@ -146,13 +146,17 @@ export class AudioEngine {
      * that race, and the `this.sonic !== sonic` check at the resume
      * point is the explicit late-resolve bailout.
      */
+    /*
+     * `coreBaseURL` points supersonic at the GPL core assets (WASM +
+     * AudioWorklet from supersonic-scsynth-core); wasm resolves to
+     * `coreBaseURL + 'wasm/'` and the worklet to `coreBaseURL +
+     * 'workers/'` -- exactly the layout `npx underscore-sdk` copies
+     * into the consumer's public dir. Since 0.70 all engine options go
+     * to the constructor and `init()` takes no arguments.
+     */
     const sonic = new SuperSonic({
+      coreBaseURL: this.config.wasmBaseUrl,
       workerBaseURL: workerBaseUrl,
-      wasmBaseURL: `${this.config.wasmBaseUrl}wasm/`,
-    });
-    this.sonic = sonic;
-
-    await sonic.init({
       scsynthOptions: {
         numBuffers: 256,
         realTimeMemorySize: 8192,
@@ -162,6 +166,9 @@ export class AudioEngine {
         sampleRate: 48000,
       },
     });
+    this.sonic = sonic;
+
+    await sonic.init();
 
     if (this.sonic !== sonic) {
       /*
@@ -203,26 +210,16 @@ export class AudioEngine {
   /**
    * Load a synthdef from binary data.
    *
-   * Encoded as a `data:` URL rather than a `blob:` URL because the
-   * underlying audio engine probes resources with a `HEAD` request
-   * before fetching, and Chromium rejects HEAD on `blob:` URLs with
-   * `ERR_METHOD_NOT_SUPPORTED`. Synthdefs are small (~5-10 KB), so
-   * the ~33% base64 overhead is negligible compared to the network
-   * round-trip we just avoided. Data URLs also need no revocation,
-   * sidestepping the race between `URL.revokeObjectURL` and the
-   * engine's async fetch.
+   * Bytes are handed to the engine directly. This path has broken twice
+   * behind URL indirection (blob: URLs rejected the engine's HEAD probe;
+   * data: URLs carried base64 overhead and probe assumptions), and since
+   * 0.70 `loadSynthDef` accepts raw ArrayBuffer as a first-class input,
+   * so no URL encoding of any kind is warranted here.
    */
   async loadSynthdefFromData(data: ArrayBuffer): Promise<void> {
     await this.init();
 
-    const bytes = new Uint8Array(data);
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    const url = `data:application/octet-stream;base64,${btoa(binary)}`;
-
-    await this.sonic!.loadSynthDef(url);
+    await this.sonic!.loadSynthDef(data);
   }
 
   /**
@@ -390,9 +387,9 @@ export class AudioEngine {
     this.masterVolume = clamped;
     if (!this.masterGain) {
       /*
-       * The master GainNode is spliced in during `init()` by reaching
-       * through Supersonic's private `workletNode`/`audioContext`. If
-       * Supersonic ever renames or restructures those fields the splice
+       * The master GainNode is spliced in during `init()` through
+       * Supersonic's public `node`/`audioContext` accessors. If
+       * Supersonic ever renames or restructures those the splice
        * silently no-ops and `setMasterVolume` becomes a black hole.
        * Warn loudly so the regression surfaces in user reports. The
        * long-term fix is a public setMasterGain API in supersonic-scsynth.
