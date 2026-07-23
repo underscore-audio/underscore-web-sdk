@@ -12,6 +12,13 @@ import type {
   SynthScore as GeneratedSynthScore,
   SynthSummary as GeneratedSynthSummary,
   SynthMetadata as GeneratedSynthMetadata,
+  ProgramOscArg as GeneratedProgramOscArg,
+  ProgramCommand as GeneratedProgramCommand,
+  ProgramEvent as GeneratedProgramEvent,
+  ProgramSection as GeneratedProgramSection,
+  ProgramBus as GeneratedProgramBus,
+  ProgramManifest as GeneratedProgramManifest,
+  ProgramSummary as GeneratedProgramSummary,
   CompositionResponse as GeneratedComposition,
   CreateCompositionRequest as GeneratedCreateCompositionOptions,
   CreateCompositionResponse as GeneratedCreateCompositionResponse,
@@ -229,6 +236,87 @@ export interface SynthMetadata extends GeneratedSynthMetadata {
 }
 
 /**
+ * One OSC argument. OSC argument lists are heterogeneous by protocol:
+ * def/control names are strings, node IDs and values are numbers.
+ */
+export type ProgramOscArg = GeneratedProgramOscArg;
+
+/**
+ * One captured setup command: an OSC address plus fully-resolved args.
+ * Setup commands build the program's node graph (groups, persistent
+ * stem/FX synths) before any timed event fires.
+ */
+export type ProgramCommand = GeneratedProgramCommand;
+
+/**
+ * One captured beat-stamped event: an OSC address plus fully-resolved
+ * args, executed at `beat` on the program's tempo grid.
+ */
+export type ProgramEvent = GeneratedProgramEvent;
+
+/**
+ * A named section boundary: `beat` is where the section starts.
+ * Useful as seek targets (see Program.seekToSection).
+ */
+export type ProgramSection = GeneratedProgramSection;
+
+/**
+ * A private audio bus the captured graph routes through. Indices are
+ * baked into the manifest's OSC; the SDK pins the engine's bus layout
+ * so they resolve to the same channels the capture used.
+ */
+export type ProgramBus = GeneratedProgramBus;
+
+/**
+ * The captured description of a multi-SynthDef piece: ordered `setup`
+ * commands, beat-stamped `events`, and the metadata to navigate them.
+ * Every numeric argument is already resolved (no client-side
+ * randomness), so playback is a faithful bundle replay rather than a
+ * reimplementation of the composition.
+ */
+export type ProgramManifest = GeneratedProgramManifest;
+
+/**
+ * Program summary returned from the list endpoint. Served from
+ * denormalized metadata, so listing is cheap; the full manifest (often
+ * hundreds of KB) is only fetched by `loadProgram` / `getProgramManifest`.
+ */
+export interface ProgramSummary extends GeneratedProgramSummary {
+  /** Program name, unique within a composition. */
+  name: string;
+
+  /** Display title. */
+  title: string;
+
+  /** Human-readable description. */
+  description: string;
+
+  /** Tempo in beats per minute. */
+  bpm: number;
+
+  /** Beats per bar at capture time. */
+  beatsPerBar: number;
+
+  /** Total length in beats. */
+  durationBeats: number;
+
+  /** Total length in seconds at the program's tempo. */
+  durationSec: number;
+
+  /** Named sections with their start beats, in playback order. */
+  sections: ProgramSection[];
+
+  /** SynthDef names the program loads. */
+  synthdefs: string[];
+
+  /** Creation timestamp as an ISO 8601 string. */
+  createdAt: string;
+
+  /** URL path of the full manifest. */
+  manifestUrl: string;
+}
+
+/**
  * Composition metadata from the API.
  */
 export interface Composition extends GeneratedComposition {
@@ -238,8 +326,11 @@ export interface Composition extends GeneratedComposition {
   /** Visibility of the composition. */
   visibility?: "private" | "unlisted" | "public";
 
-  /** Number of synths in this composition. */
+  /** Number of synths in this composition (programs counted separately). */
   synthCount?: number;
+
+  /** Number of programs in this composition. */
+  programCount?: number;
 
   /** Name of the most recently created synth. */
   lastSynthName?: string | null;

@@ -242,7 +242,10 @@ there.
 | `loadSynth(compositionId, synthName?)`                  | `(string, string?) => Promise<Synth>`                                                                         | Resolves to a playable `Synth`. Defaults to the latest synth in the composition when `synthName` is omitted. Throws `ApiError` (HTTP), `ValidationError` (schema), `AudioError` (engine), or `SynthError` (no synths).                                                         |
 | `listSynths(compositionId)`                             | `(string) => Promise<SynthSummary[]>`                                                                         | All synths in the composition. Throws `ApiError`, `ValidationError`.                                                                                                                                                                                                           |
 | `getSynth(compositionId, synthName)`                    | `(string, string) => Promise<SynthMetadata>`                                                                  | Full metadata including samples + synthdef URL.                                                                                                                                                                                                                                |
-| `getComposition(compositionId)`                         | `(string) => Promise<Composition>`                                                                            | Composition metadata.                                                                                                                                                                                                                                                          |
+| `getComposition(compositionId)`                         | `(string) => Promise<Composition>`                                                                            | Composition metadata, including `synthCount` and `programCount`.                                                                                                                                                                                                               |
+| `listPrograms(compositionId)`                           | `(string) => Promise<ProgramSummary[]>`                                                                       | All programs (multi-synth pieces) in the composition: title, bpm, duration, sections. Throws `ApiError`, `ValidationError`.                                                                                                                                                    |
+| `getProgramManifest(compositionId, programName)`        | `(string, string) => Promise<ProgramManifest>`                                                                | The full program manifest (setup + event timeline). Prefer `listPrograms` when you only need display metadata.                                                                                                                                                                 |
+| `loadProgram(compositionId, programName?)`              | `(string, string?) => Promise<Program>`                                                                       | Resolves to a playable `Program`. Fetches the manifest and every SynthDef it names, and boots the audio engine (call from a user gesture). Defaults to the latest program when `programName` is omitted. Throws `ApiError`, `ValidationError`, `AudioError`, or `SynthError`.  |
 | `createComposition(options?)`                           | `(CreateCompositionOptions?) => Promise<CreateCompositionResponse>`                                           | Server-only (requires secret key).                                                                                                                                                                                                                                             |
 | `startGeneration(compositionId, description, options?)` | `(string, string, { complexity?; model? }?) => Promise<{ jobId, streamUrl }>`                                 | Server-only. Kicks off a generation job; returns the unguessable `jobId` and a relative `streamUrl` to forward to the browser. `options.complexity` (`"fast" \| "balanced" \| "rich"`) trades speed against richness; `options.model` pins a backend model. Throws `ApiError`. |
 | `subscribeToGeneration(streamUrl, options?)`            | `(string, { compositionId?: string; signal?: AbortSignal }?) => AsyncGenerator<GenerationEvent & { synth? }>` | Browser-only. Yields events from the SSE stream. When `options.compositionId` is provided, auto-loads the finished synth on `ready`. `options.signal` cancels the subscription.                                                                                                |
@@ -302,6 +305,72 @@ interface ParamMetadata {
 }
 ```
 
+### `Program`
+
+A program is a complete timed piece: several SynthDefs, a routing
+graph, and a beat-stamped event timeline, captured as a manifest.
+Where a `Synth` is one instrument you play and tweak, a `Program` is
+an arrangement you transport through.
+
+```typescript
+class Program {
+  // identity / metadata (from the manifest)
+  readonly compositionId: string;
+  readonly name: string;
+  readonly title: string;
+  readonly description: string;
+  readonly bpm: number;
+  readonly durationBeats: number;
+  readonly durationSec: number;
+  readonly sections: ProgramSection[]; // { name, beat }
+
+  // transport
+  play(atBeat?: number): Promise<void>;
+  stop(): Promise<void>;
+  seek(beat: number): Promise<void>; // clamps to [0, durationBeats]
+  seekToSection(index: number): Promise<void>; // throws SynthError on bad index
+  isPlaying(): boolean;
+
+  // observe progress (~10 Hz while playing; immediate snapshot on subscribe)
+  subscribe(listener: (progress: ProgramProgress) => void): () => void;
+}
+
+interface ProgramProgress {
+  state: "idle" | "playing";
+  beat: number;
+  seconds: number;
+  progress: number; // 0..1
+  durationBeats: number;
+  durationSec: number;
+  sectionIndex: number; // -1 before the first section
+  sectionName: string | null;
+  sectionCount: number;
+}
+```
+
+```typescript
+const program = await underscore.loadProgram(COMPOSITION_ID); // latest program
+await program.play();
+
+const unsubscribe = program.subscribe((p) => {
+  bar.style.width = `${p.progress * 100}%`;
+  label.textContent = p.sectionName ?? program.title;
+});
+
+await program.seekToSection(2); // jump to the third section
+await program.stop();
+unsubscribe();
+```
+
+Seeking is stateful, not just a jump: the SDK replays the cumulative
+control state up to the target beat before re-anchoring the timeline,
+so entering mid-piece sounds the way it would if the piece had played
+from the start.
+
+Playback is exclusive per client: starting a program stops any playing
+synth or other program, and calling `synth.play()` stops a running
+program. Nothing double-plays.
+
 ### `GenerationEvent` (streaming events)
 
 `subscribeToGeneration` yields a discriminated union; check
@@ -332,7 +401,7 @@ import {
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ApiError`        | HTTP request to the Underscore API fails. Carries `status`.                                                                                                 |
 | `AudioError`      | Audio engine cannot start (e.g. autoplay-suspended `AudioContext` past the 10s watchdog), missing sample URL, or `init()` was never called before `play()`. |
-| `SynthError`      | `play()` called on an unloaded synth, or `loadSynth()` ran against a composition with zero synths.                                                          |
+| `SynthError`      | `play()` called on an unloaded synth, `loadSynth()`/`loadProgram()` ran against a composition with none, or a program seek targeted an invalid section.     |
 | `ValidationError` | API response failed Zod schema validation (most often a server contract drift). Carries `issues`.                                                           |
 
 ## API key reference

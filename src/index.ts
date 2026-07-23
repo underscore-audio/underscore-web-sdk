@@ -26,6 +26,7 @@
 import { ApiClient } from "./client.js";
 import { AudioEngine } from "./audio.js";
 import { Synth } from "./synth.js";
+import { Program, ProgramTransport } from "./program.js";
 import {
   startGeneration,
   subscribeToGeneration,
@@ -39,6 +40,8 @@ import type {
   UnderscoreConfig,
   SynthSummary,
   SynthMetadata,
+  ProgramSummary,
+  ProgramManifest,
   Composition,
   CreateCompositionOptions,
   CreateCompositionResponse,
@@ -47,6 +50,12 @@ import type {
 
 export * from "./types.js";
 export { Synth } from "./synth.js";
+export {
+  Program,
+  type ProgramPlaybackState,
+  type ProgramProgress,
+  type ProgramProgressListener,
+} from "./program.js";
 export { UnderscoreError, ApiError, AudioError, SynthError, ValidationError } from "./errors.js";
 export {
   startGeneration,
@@ -63,6 +72,7 @@ const DEFAULT_API_BASE_URL = "https://underscore.audio";
 export class Underscore {
   private client: ApiClient;
   private engine: AudioEngine;
+  private programTransport: ProgramTransport;
   private config: UnderscoreConfig;
   private log: Logger;
 
@@ -77,6 +87,14 @@ export class Underscore {
       workerBaseUrl: config.workerBaseUrl,
       logger: createLogger("audio", config.logLevel ?? "none"),
     });
+
+    /*
+     * One engine, one audible owner: the transport silences single-synth
+     * playback itself before starting a program, and this hook closes
+     * the reverse direction -- a synth play() silences program playback.
+     */
+    this.programTransport = new ProgramTransport(this.engine);
+    this.engine.onBeforePlayback = () => this.programTransport.interrupt();
   }
 
   /**
@@ -172,6 +190,64 @@ export class Underscore {
     synth.markLoaded();
 
     return synth;
+  }
+
+  /**
+   * List all programs (multi-SynthDef pieces) in a composition.
+   */
+  async listPrograms(compositionId: string): Promise<ProgramSummary[]> {
+    return this.client.listPrograms(compositionId);
+  }
+
+  /**
+   * Fetch a program's full manifest without loading it for playback.
+   * Manifests are large; prefer {@link Underscore.listPrograms} when
+   * only display metadata is needed.
+   */
+  async getProgramManifest(compositionId: string, programName: string): Promise<ProgramManifest> {
+    return this.client.getProgramManifest(compositionId, programName);
+  }
+
+  /**
+   * Load a program for playback.
+   *
+   * Fetches the manifest and every synthdef it names, loads them into
+   * the audio engine, and returns a {@link Program} handle for playback,
+   * seeking, and progress subscription. Like {@link Underscore.loadSynth},
+   * this boots the audio engine, so call it from (or after) a user
+   * gesture in browsers.
+   *
+   * @param compositionId - The composition ID
+   * @param programName - The program name (optional, defaults to the latest program)
+   */
+  async loadProgram(compositionId: string, programName?: string): Promise<Program> {
+    let name = programName;
+    if (!name) {
+      const programs = await this.client.listPrograms(compositionId);
+      if (programs.length === 0) {
+        throw new SynthError("No programs found in composition");
+      }
+      name = programs[programs.length - 1].name;
+    }
+    const resolved = name;
+
+    const manifest = await this.client.getProgramManifest(compositionId, resolved);
+
+    const defs = new Map<string, ArrayBuffer>();
+    await Promise.all(
+      manifest.synthdefs.map(async (def) => {
+        defs.set(def, await this.client.fetchProgramSynthdef(compositionId, resolved, def));
+      })
+    );
+
+    const program = new Program(this.programTransport, compositionId, resolved, manifest, defs);
+    await this.programTransport.ensureLoaded(program);
+
+    this.log.info(
+      `Loaded program ${resolved}: ${manifest.synthdefs.length} synthdefs, ` +
+        `${manifest.events.length} events`
+    );
+    return program;
   }
 
   /**

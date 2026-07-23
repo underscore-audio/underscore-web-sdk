@@ -6,7 +6,7 @@
  */
 
 import type { SynthState, SynthStateListener, SampleMetadata } from "./types.js";
-import type { SuperSonic } from "supersonic-scsynth";
+import type { SuperSonic, OscBundleEncoder } from "supersonic-scsynth";
 import { type Logger, noopLogger } from "./debug.js";
 import { AudioError } from "./errors.js";
 import {
@@ -36,8 +36,20 @@ export interface AudioEngineConfig {
 
 export class AudioEngine {
   private sonic: SuperSonic | null = null;
+  private osc: OscBundleEncoder | null = null;
   private currentNodeId = 1000;
   private currentSynthName: string | null = null;
+  /*
+   * One engine, one audible owner. Program playback (program.ts) shares
+   * this engine with the single-synth surface, and whichever side starts
+   * must silence the other first. The engine cannot know about the
+   * program transport (that would invert the layering), so the
+   * Underscore client wires this callback at construction; it fires
+   * before any single-synth voice starts. Null in engine-only usage.
+   *
+   * @internal
+   */
+  onBeforePlayback: (() => void) | null = null;
   private _isPlaying = false;
   private initPromise: Promise<void> | null = null;
   private listeners: Set<SynthStateListener> = new Set();
@@ -153,12 +165,27 @@ export class AudioEngine {
      * into the consumer's public dir. Since 0.70 all engine options go
      * to the constructor and `init()` takes no arguments.
      */
+    /*
+     * The module-level OSC encoder is captured here so timed playback
+     * (the program bundle pump) can encode timestamped bundles
+     * synchronously later, without re-importing the module.
+     */
+    this.osc = SuperSonic.osc;
+
+    /*
+     * Input/output bus channels are pinned to 2 because program
+     * manifests hardcode private audio bus indices, which start at
+     * numInputBusChannels + numOutputBusChannels = 4. Leaving these to
+     * engine defaults would silently reroute captured buses.
+     */
     const sonic = new SuperSonic({
       coreBaseURL: this.config.wasmBaseUrl,
       workerBaseURL: workerBaseUrl,
       scsynthOptions: {
         numBuffers: 256,
         realTimeMemorySize: 8192,
+        numInputBusChannels: 2,
+        numOutputBusChannels: 2,
       },
       audioContextOptions: {
         latencyHint: "playback",
@@ -204,6 +231,44 @@ export class AudioEngine {
    */
   get audioContext(): AudioContext | null {
     return this.sonic?.audioContext || null;
+  }
+
+  /**
+   * The underlying SuperSonic engine, or null before init(). Exposed for
+   * the program transport, which needs timestamped-bundle scheduling
+   * primitives (send/sendOSC/superClock/purge/sync) that are outside the
+   * single-synth play/stop/setParam surface this class offers. There is
+   * one engine per client, so program playback and single-synth playback
+   * share it and must not run at the same time (each stops the other
+   * before starting).
+   *
+   * @internal
+   */
+  get engine(): SuperSonic | null {
+    return this.sonic;
+  }
+
+  /**
+   * The module-level OSC bundle encoder, or null before init(). Timed
+   * playback encodes timestamped bundles with it; it is captured at init
+   * so those callers stay synchronous.
+   *
+   * @internal
+   */
+  get oscEncoder(): OscBundleEncoder | null {
+    return this.osc;
+  }
+
+  /**
+   * Free named SynthDefs from the engine's RT memory. Callers that track
+   * which defs they loaded (the program transport) must invoke this when
+   * switching programs -- otherwise every distinct program played in a
+   * session permanently accumulates in RT memory.
+   */
+  freeSynthDefs(names: readonly string[]): void {
+    if (!this.sonic || names.length === 0) return;
+    this.sonic.send("/d_free", ...names);
+    this.log.debug(`Freed ${names.length} synthdef(s): ${names.join(", ")}`);
   }
 
   /**
@@ -308,6 +373,8 @@ export class AudioEngine {
       throw new AudioError("Audio not initialized. Call init() first.");
     }
 
+    this.onBeforePlayback?.();
+
     const ctx = this.sonic.audioContext as AudioContext;
     if (ctx?.state === "suspended") {
       await ctx.resume();
@@ -318,7 +385,13 @@ export class AudioEngine {
       this.sonic.send("/n_free", this.currentNodeId);
     }
 
-    this.currentNodeId++;
+    /*
+     * nextNodeId() allocates from supersonic's shared counter so voice
+     * IDs never collide with other engine clients -- program manifests
+     * bake their own node IDs into setup/events, and a locally
+     * incremented counter could eventually land on one of them.
+     */
+    this.currentNodeId = this.sonic.nextNodeId();
     this.sonic.send("/s_new", synthName, this.currentNodeId, 0, 0);
     this.currentSynthName = synthName;
     this._isPlaying = true;
@@ -477,6 +550,8 @@ export class AudioEngine {
       throw new AudioError("Audio not initialized. Call init() first.");
     }
 
+    this.onBeforePlayback?.();
+
     const ctx = this.sonic.audioContext as AudioContext;
     if (ctx?.state === "suspended") {
       await ctx.resume();
@@ -494,7 +569,7 @@ export class AudioEngine {
     const oldNodeId = this._isPlaying ? this.currentNodeId : null;
     const oldAmp = this.paramValues.get("amp") ?? targetAmp;
 
-    this.currentNodeId++;
+    this.currentNodeId = this.sonic.nextNodeId();
     const newNodeId = this.currentNodeId;
 
     this.sonic.send("/s_new", synthName, newNodeId, 0, 0, "amp", 0);

@@ -178,6 +178,97 @@ describe("Underscore", () => {
     });
   });
 
+  describe("loadProgram()", () => {
+    const mockManifest = {
+      format: 1,
+      name: "night_ledger",
+      title: "Night Ledger",
+      description: "A nocturnal piece",
+      bpm: 92,
+      beatsPerBar: 4,
+      durationBeats: 256,
+      synthdefs: ["nl_pad", "nl_bass"],
+      buses: [],
+      sections: [{ name: "intro", beat: 0 }],
+      setup: [{ cmd: "/g_new", args: [10, 0, 0] }],
+      events: [{ beat: 0, cmd: "/s_new", args: ["nl_pad", 100, 1, 10] }],
+    };
+
+    const mockSummary = {
+      name: "night_ledger",
+      title: "Night Ledger",
+      description: "A nocturnal piece",
+      bpm: 92,
+      beatsPerBar: 4,
+      durationBeats: 256,
+      durationSec: 166.96,
+      sections: [{ name: "intro", beat: 0 }],
+      synthdefs: ["nl_pad", "nl_bass"],
+      createdAt: "2026-07-01T00:00:00.000Z",
+      manifestUrl: "/api/v1/compositions/cmp_123/programs/night_ledger",
+    };
+
+    function mockManifestAndDefs() {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockManifest),
+      });
+      /* One binary fetch per entry in manifest.synthdefs. */
+      mockFetch.mockResolvedValue({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(32)),
+      });
+    }
+
+    it("loads a program by name: manifest, all defs, engine upload", async () => {
+      mockManifestAndDefs();
+
+      const client = new Underscore({ apiKey: "us_test_key" });
+      const program = await client.loadProgram("cmp_123", "night_ledger");
+
+      expect(program.name).toBe("night_ledger");
+      expect(program.durationBeats).toBe(256);
+      expect(program.isPlaying()).toBe(false);
+
+      const urls = mockFetch.mock.calls.map((c) => c[0] as string);
+      expect(urls).toContain(
+        "https://underscore.audio/api/v1/compositions/cmp_123/programs/night_ledger"
+      );
+      expect(urls).toContain(
+        "https://underscore.audio/api/v1/compositions/cmp_123/programs/night_ledger/synthdefs/nl_pad"
+      );
+      expect(urls).toContain(
+        "https://underscore.audio/api/v1/compositions/cmp_123/programs/night_ledger/synthdefs/nl_bass"
+      );
+    });
+
+    it("defaults to the latest program when name is omitted", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            programs: [{ ...mockSummary, name: "older_piece" }, mockSummary],
+          }),
+      });
+      mockManifestAndDefs();
+
+      const client = new Underscore({ apiKey: "us_test_key" });
+      const program = await client.loadProgram("cmp_123");
+
+      expect(program.name).toBe("night_ledger");
+    });
+
+    it("throws when the composition has no programs", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ programs: [] }),
+      });
+
+      const client = new Underscore({ apiKey: "us_test_key" });
+      await expect(client.loadProgram("cmp_123")).rejects.toThrow("No programs found");
+    });
+  });
+
   describe("audioContext", () => {
     it("returns null before init", () => {
       const client = new Underscore({ apiKey: "us_test_key" });
