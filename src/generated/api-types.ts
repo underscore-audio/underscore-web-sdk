@@ -14,6 +14,14 @@ import {
   SynthSummarySchema,
   SynthMetadataSchema,
   ListSynthsResponseSchema,
+  ProgramOscArgSchema,
+  ProgramCommandSchema,
+  ProgramEventSchema,
+  ProgramSectionSchema,
+  ProgramBusSchema,
+  ProgramManifestSchema,
+  ProgramSummarySchema,
+  ListProgramsResponseSchema,
   CompositionVisibilitySchema,
   CreateCompositionVisibilitySchema,
   CompositionResponseSchema,
@@ -39,6 +47,14 @@ export type SynthScore = z.infer<typeof SynthScoreSchema>;
 export type SynthSummary = z.infer<typeof SynthSummarySchema>;
 export type SynthMetadata = z.infer<typeof SynthMetadataSchema>;
 export type ListSynthsResponse = z.infer<typeof ListSynthsResponseSchema>;
+export type ProgramOscArg = z.infer<typeof ProgramOscArgSchema>;
+export type ProgramCommand = z.infer<typeof ProgramCommandSchema>;
+export type ProgramEvent = z.infer<typeof ProgramEventSchema>;
+export type ProgramSection = z.infer<typeof ProgramSectionSchema>;
+export type ProgramBus = z.infer<typeof ProgramBusSchema>;
+export type ProgramManifest = z.infer<typeof ProgramManifestSchema>;
+export type ProgramSummary = z.infer<typeof ProgramSummarySchema>;
+export type ListProgramsResponse = z.infer<typeof ListProgramsResponseSchema>;
 export type CompositionVisibility = z.infer<typeof CompositionVisibilitySchema>;
 export type CreateCompositionVisibility = z.infer<typeof CreateCompositionVisibilitySchema>;
 export type CompositionResponse = z.infer<typeof CompositionResponseSchema>;

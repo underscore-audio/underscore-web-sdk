@@ -156,4 +156,132 @@ describe("ApiClient", () => {
       );
     });
   });
+
+  describe("listPrograms", () => {
+    const mockProgram = {
+      name: "night_ledger",
+      title: "Night Ledger",
+      description: "A nocturnal piece",
+      bpm: 92,
+      beatsPerBar: 4,
+      durationBeats: 256,
+      durationSec: 166.96,
+      sections: [{ name: "intro", beat: 0 }],
+      synthdefs: ["nl_pad", "nl_bass"],
+      createdAt: "2026-07-01T00:00:00.000Z",
+      manifestUrl: "/api/v1/compositions/cmp_123/programs/night_ledger",
+    };
+
+    it("fetches and validates program summaries", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ programs: [mockProgram] }),
+      });
+
+      const client = new ApiClient("us_test_key");
+      const programs = await client.listPrograms("cmp_123");
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://underscore.audio/api/v1/compositions/cmp_123/programs",
+        expect.objectContaining({
+          headers: expect.objectContaining({ "Underscore-API-Key": "us_test_key" }),
+        })
+      );
+      expect(programs).toEqual([mockProgram]);
+    });
+
+    it("throws ValidationError on a malformed summary", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ programs: [{ name: "broken" }] }),
+      });
+
+      const client = new ApiClient("us_test_key");
+      await expect(client.listPrograms("cmp_123")).rejects.toThrow("Invalid API response");
+    });
+  });
+
+  describe("getProgramManifest", () => {
+    const mockManifest = {
+      format: 1,
+      name: "night_ledger",
+      title: "Night Ledger",
+      description: "A nocturnal piece",
+      bpm: 92,
+      beatsPerBar: 4,
+      durationBeats: 256,
+      synthdefs: ["nl_pad"],
+      buses: [],
+      sections: [],
+      setup: [{ cmd: "/g_new", args: [10, 0, 0] }],
+      events: [{ beat: 0, cmd: "/s_new", args: ["nl_pad", 100, 1, 10] }],
+    };
+
+    it("fetches and validates the manifest", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockManifest),
+      });
+
+      const client = new ApiClient("us_test_key");
+      const manifest = await client.getProgramManifest("cmp_123", "night_ledger");
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://underscore.audio/api/v1/compositions/cmp_123/programs/night_ledger",
+        expect.anything()
+      );
+      expect(manifest).toEqual(mockManifest);
+    });
+
+    /*
+     * The format literal is the version gate: a future manifest format
+     * must fail loudly here instead of being replayed with semantics
+     * this SDK does not implement.
+     */
+    it("rejects a manifest from an unknown future format", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ ...mockManifest, format: 2 }),
+      });
+
+      const client = new ApiClient("us_test_key");
+      await expect(client.getProgramManifest("cmp_123", "night_ledger")).rejects.toThrow(
+        "Invalid API response"
+      );
+    });
+  });
+
+  describe("fetchProgramSynthdef", () => {
+    it("fetches binary synthdef data for a program def", async () => {
+      const mockData = new ArrayBuffer(64);
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(mockData),
+      });
+
+      const client = new ApiClient("us_test_key");
+      const data = await client.fetchProgramSynthdef("cmp_123", "night_ledger", "nl_pad");
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        "https://underscore.audio/api/v1/compositions/cmp_123/programs/night_ledger/synthdefs/nl_pad",
+        expect.objectContaining({
+          headers: expect.objectContaining({ "Underscore-API-Key": "us_test_key" }),
+        })
+      );
+      expect(data).toBe(mockData);
+    });
+
+    it("throws on fetch error", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+      });
+
+      const client = new ApiClient("us_test_key");
+      await expect(
+        client.fetchProgramSynthdef("cmp_123", "night_ledger", "missing")
+      ).rejects.toThrow("Failed to fetch program synthdef: 404");
+    });
+  });
 });

@@ -6,6 +6,8 @@
 import type {
   SynthSummary,
   SynthMetadata,
+  ProgramSummary,
+  ProgramManifest,
   Composition,
   CreateCompositionOptions,
   CreateCompositionResponse,
@@ -13,6 +15,8 @@ import type {
 import {
   ListSynthsResponseSchema,
   SynthMetadataSchema,
+  ListProgramsResponseSchema,
+  ProgramManifestSchema,
   CompositionSchema,
   CreateCompositionResponseSchema,
 } from "./schemas.js";
@@ -126,6 +130,52 @@ export class ApiClient {
 
     if (!response.ok) {
       throw new ApiError(`Failed to fetch synthdef: ${response.status}`, response.status);
+    }
+
+    return response.arrayBuffer();
+  }
+
+  /**
+   * List all programs (multi-SynthDef pieces) in a composition.
+   * Validates the API response against the expected schema.
+   */
+  async listPrograms(compositionId: string): Promise<ProgramSummary[]> {
+    const data = await this.request<unknown>(`/api/v1/compositions/${compositionId}/programs`);
+    const result = this.validate(ListProgramsResponseSchema, data);
+    return result.programs;
+  }
+
+  /**
+   * Fetch and validate a program's full manifest. Manifests are large
+   * (often hundreds of KB of event lists); prefer `listPrograms` when
+   * only display metadata is needed.
+   */
+  async getProgramManifest(compositionId: string, programName: string): Promise<ProgramManifest> {
+    const data = await this.request<unknown>(
+      `/api/v1/compositions/${compositionId}/programs/${programName}`
+    );
+    return this.validate(ProgramManifestSchema, data);
+  }
+
+  /**
+   * Fetch one of a program's compiled synthdef binaries. The manifest's
+   * `synthdefs` array names each def a program needs.
+   */
+  async fetchProgramSynthdef(
+    compositionId: string,
+    programName: string,
+    defName: string
+  ): Promise<ArrayBuffer> {
+    const url = `${this.baseUrl}/api/v1/compositions/${compositionId}/programs/${programName}/synthdefs/${defName}`;
+
+    const response = await fetch(url, {
+      headers: {
+        "Underscore-API-Key": this.apiKey,
+      },
+    });
+
+    if (!response.ok) {
+      throw new ApiError(`Failed to fetch program synthdef: ${response.status}`, response.status);
     }
 
     return response.arrayBuffer();

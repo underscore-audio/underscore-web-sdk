@@ -65,6 +65,63 @@ export const ListSynthsResponseSchema = z.object({
   synths: z.array(SynthSummarySchema),
 });
 
+export const ProgramOscArgSchema = z.union([z.string(), z.number()]);
+
+export const ProgramCommandSchema = z.object({
+  cmd: z.string(),
+  args: z.array(ProgramOscArgSchema),
+});
+
+export const ProgramEventSchema = z.object({
+  beat: z.number(),
+  cmd: z.string(),
+  args: z.array(ProgramOscArgSchema),
+});
+
+export const ProgramSectionSchema = z.object({
+  name: z.string(),
+  beat: z.number(),
+});
+
+export const ProgramBusSchema = z.object({
+  name: z.string(),
+  index: z.number().int().min(0),
+  channels: z.number().int().positive(),
+});
+
+export const ProgramManifestSchema = z.object({
+  format: z.literal(1),
+  name: z.string(),
+  title: z.string(),
+  description: z.string(),
+  bpm: z.number().positive(),
+  beatsPerBar: z.number().positive(),
+  durationBeats: z.number().min(0),
+  synthdefs: z.array(z.string()).min(1),
+  buses: z.array(ProgramBusSchema),
+  sections: z.array(ProgramSectionSchema),
+  setup: z.array(ProgramCommandSchema),
+  events: z.array(ProgramEventSchema).min(1),
+});
+
+export const ProgramSummarySchema = z.object({
+  name: z.string(),
+  title: z.string(),
+  description: z.string(),
+  bpm: z.number().positive(),
+  beatsPerBar: z.number().positive(),
+  durationBeats: z.number().min(0),
+  durationSec: z.number().min(0),
+  sections: z.array(ProgramSectionSchema),
+  synthdefs: z.array(z.string()),
+  createdAt: z.string(),
+  manifestUrl: z.string().regex(new RegExp("^/api/v1/")),
+});
+
+export const ListProgramsResponseSchema = z.object({
+  programs: z.array(ProgramSummarySchema),
+});
+
 export const CompositionVisibilitySchema = z.enum(["private", "unlisted", "public"]);
 
 export const CreateCompositionVisibilitySchema = z.enum(["unlisted", "public"]);
@@ -73,6 +130,7 @@ export const CompositionResponseSchema = z.object({
   id: z.string(),
   visibility: CompositionVisibilitySchema.optional(),
   synthCount: z.number().optional(),
+  programCount: z.number().optional(),
   lastSynthName: z.string().nullable().optional(),
   createdAt: z.string(),
   updatedAt: z.string().optional(),

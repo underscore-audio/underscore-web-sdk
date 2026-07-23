@@ -109,11 +109,15 @@ vi.mock("supersonic-scsynth", () => {
   const buildSonic = (): {
     audioContext: unknown;
     workletNode: { connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> };
+    superClock: { now: () => number };
     init: ReturnType<typeof vi.fn>;
     loadSynthDef: ReturnType<typeof vi.fn>;
     loadSample: ReturnType<typeof vi.fn>;
     sync: ReturnType<typeof vi.fn>;
     send: ReturnType<typeof vi.fn>;
+    sendOSC: ReturnType<typeof vi.fn>;
+    purge: ReturnType<typeof vi.fn>;
+    nextNodeId: ReturnType<typeof vi.fn>;
   } => {
     const mockGain = {
       gain: { value: 1, setTargetAtTime: vi.fn() },
@@ -131,20 +135,31 @@ vi.mock("supersonic-scsynth", () => {
       connect: vi.fn(),
       disconnect: vi.fn(),
     };
+    let nodeId = 1000;
     return {
       audioContext: mockAudioContext,
       workletNode: mockWorkletNode,
+      superClock: { now: () => performance.now() / 1000 },
       init: vi.fn().mockResolvedValue(undefined),
       loadSynthDef: vi.fn().mockResolvedValue(undefined),
       loadSample: vi.fn().mockResolvedValue(undefined),
       sync: vi.fn().mockResolvedValue(undefined),
       send: vi.fn(),
+      sendOSC: vi.fn(),
+      purge: vi.fn().mockResolvedValue(undefined),
+      nextNodeId: vi.fn(() => ++nodeId),
     };
   };
 
-  return {
-    SuperSonic: vi.fn().mockImplementation(buildSonic),
-  };
+  const SuperSonic = Object.assign(vi.fn().mockImplementation(buildSonic), {
+    /*
+     * Static encoder mirrors the real module-level `SuperSonic.osc`;
+     * captured by AudioEngine.doInit for timestamped bundle playback.
+     */
+    osc: { encodeBundle: vi.fn(() => new Uint8Array(0)) },
+  });
+
+  return { SuperSonic };
 });
 
 /**

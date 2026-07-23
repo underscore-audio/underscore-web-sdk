@@ -7,8 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Programs: multi-synth piece playback.** A program is a complete
+  timed piece — several SynthDefs, a routing graph, and a beat-stamped
+  event timeline — captured as a manifest. New API surface:
+  - `underscore.listPrograms(compositionId)` returns program summaries
+    (title, bpm, duration, sections) without the heavy manifest.
+  - `underscore.getProgramManifest(compositionId, name)` fetches and
+    validates a full manifest.
+  - `underscore.loadProgram(compositionId, name?)` fetches the manifest
+    plus every SynthDef it names, loads them into the audio engine, and
+    returns a `Program` handle. Omitting `name` loads the latest
+    program.
+  - `Program` supports `play(atBeat?)`, `stop()`, `seek(beat)`,
+    `seekToSection(index)`, `isPlaying()`, and `subscribe(listener)`
+    for ~10 Hz progress snapshots (beat, seconds, section, progress).
+    Seeking replays the cumulative control state up to the target beat,
+    so a mid-piece entry sounds the way it would if the piece had
+    played from the start.
+- Playback is exclusive per client: starting a program stops
+  single-synth playback and vice versa, so a page never double-plays.
+- Program schemas (`ProgramManifest`, `ProgramSummary`, and friends)
+  are exported both as types and as Zod schemas.
+
 ### Changed
 
+- The backend version pin (`.underscore-version`) now points at the
+  backend commit that introduces the `/api/v1/compositions/{id}/programs`
+  endpoints, and the generated contract (types, schemas, OpenAPI) picks
+  up the new program shapes plus a `programCount` field on
+  `Composition`. Existing synth endpoints no longer return program
+  records; they were never loadable as single synths.
 - The backend version pin (`.underscore-version`) now points at the
   current backend main. The `/api/v1` request/response shapes are
   unchanged; the backend now enforces stricter checks behind them
