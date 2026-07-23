@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The backend version pin (`.underscore-version`) now points at the
+  current backend main. The `/api/v1` request/response shapes are
+  unchanged; the backend now enforces stricter checks behind them
+  (composition ownership on reuse, content validation on generation
+  inputs, asset allowlisting), all of which surface through the
+  existing `ApiError` with the server's status and message.
+- Generation error-path tests now assert the `ApiError.status` and
+  server-provided message rather than just the error type.
+
 ## [0.5.0] - 2026-07-21
 
 ### Changed

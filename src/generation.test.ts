@@ -127,7 +127,14 @@ describe("generation", () => {
       );
     });
 
-    it("throws ApiError with server message on HTTP failure", async () => {
+    /*
+     * The backend rejects more inputs than it used to (ownership checks on
+     * composition reuse, stricter content validation), so consumers lean on
+     * ApiError carrying BOTH the HTTP status and the server's message —
+     * assert the fields, not just the instance, so a regression to a
+     * generic "request failed" string cannot slip through.
+     */
+    it("throws ApiError carrying status and server message on a 403 rejection", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: false,
         status: 403,
@@ -136,12 +143,33 @@ describe("generation", () => {
 
       const { startGeneration } = await import("./generation.js");
 
-      await expect(
-        startGeneration("https://api.test.com", "us_pub_test_key", {
-          compositionId: "cmp_123",
-          description: "Test",
-        })
-      ).rejects.toBeInstanceOf(ApiError);
+      const err = await startGeneration("https://api.test.com", "us_pub_test_key", {
+        compositionId: "cmp_123",
+        description: "Test",
+      }).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(403);
+      expect((err as ApiError).message).toBe("Secret key required for this operation");
+    });
+
+    it("throws ApiError carrying status and server message on a 400 validation rejection", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        json: () => Promise.resolve({ error: "Description contains disallowed content" }),
+      });
+
+      const { startGeneration } = await import("./generation.js");
+
+      const err = await startGeneration("https://api.test.com", "us_sec_test_key", {
+        compositionId: "cmp_123",
+        description: "Test",
+      }).catch((e: unknown) => e);
+
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).status).toBe(400);
+      expect((err as ApiError).message).toBe("Description contains disallowed content");
     });
 
     it("throws ApiError when server response is malformed", async () => {
