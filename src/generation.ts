@@ -39,10 +39,9 @@ export interface StartGenerationOptions {
    */
   complexity?: GenerateRequest["complexity"];
   /**
-   * Explicit model override for callers that want to pin a specific
-   * model. Valid values are defined by the backend and change as models
-   * are added or retired; prefer `complexity`, which is stable across
-   * model generations.
+   * Explicit catalogue model pin. Prefer `complexity`, which is stable
+   * across model generations; when set, the id must be one of the
+   * `GenerateRequest.model` enum values (see README).
    */
   model?: GenerateRequest["model"];
   /**

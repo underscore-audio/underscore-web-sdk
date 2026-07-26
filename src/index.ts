@@ -297,8 +297,8 @@ export class Underscore {
    *
    * @param options Optional tuning knobs: `complexity` trades speed
    *   against musical richness (`"fast" | "balanced" | "rich"`);
-   *   `model` pins a specific backend model. Omit both for the
-   *   default single-shot behavior.
+   *   `model` pins a catalogue id (Anthropic / OpenAI / xAI). Omit
+   *   both for the default single-shot behavior.
    */
   async startGeneration(
     compositionId: string,

@@ -80,7 +80,7 @@ describe("generation", () => {
         compositionId: "cmp_123",
         description: "Make a warm pad",
         complexity: "fast",
-        model: "some-model-id",
+        model: "gpt-5.6-sol",
         kind: "program",
       });
 
@@ -90,7 +90,7 @@ describe("generation", () => {
           body: JSON.stringify({
             description: "Make a warm pad",
             complexity: "fast",
-            model: "some-model-id",
+            model: "gpt-5.6-sol",
             kind: "program",
           }),
         })
