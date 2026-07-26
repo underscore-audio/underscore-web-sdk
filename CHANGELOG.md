@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **[INTEGRATE.md](./INTEGRATE.md)** — agent-facing guide for wiring
+  Underscore into a host app after the wizard: glossary, interview
+  questions, patterns A–E (warm backup + gate), checklist, and
+  anti-patterns. Shipped in the npm package (`files`), linked from the
+  wizard outro with a stable GitHub URL, and referenced from AGENTS.md /
+  README so install plumbing is not mistaken for product integration.
+- **`ReadyWithProgram` / `ReadyWithSynth` / `isReadyWith*`** — discriminated
+  helpers for auto-loaded generation stream events.
+- **Program generation via SDK.** `startGeneration` accepts
+  `kind: "synth" | "program"` (default `"synth"`). Terminal `ready`
+  events carry `kind`; when `compositionId` is provided,
+  `subscribeToGeneration` auto-loads a `Program` (`event.program`) for
+  program jobs and a `Synth` (`event.synth`) for synth jobs. Pass
+  `kind` on subscribe as a hint when a stream omits it on `complete`.
+  Omit `compositionId` to observe SSE only (e.g. warm-backup refill
+  that must not auto-load into the live engine).
 - **Programs: multi-synth piece playback.** A program is a complete
   timed piece — several SynthDefs, a routing graph, and a beat-stamped
   event timeline — captured as a manifest. New API surface:

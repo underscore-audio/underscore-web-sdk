@@ -46,6 +46,19 @@ infrastructure details to the public.
    Format: `<type>(<scope>): <description>`. No `(UND-XX)` suffix.
    The private repo uses ticket IDs in commits; this repo does not.
 
+## Integrating Underscore into a host application
+
+When an agent (or developer) is wiring this SDK into a real product —
+not just running unit tests in this repo — follow
+[INTEGRATE.md](./INTEGRATE.md).
+
+The install wizard only does plumbing (deps, WASM, COOP/COEP, keys,
+demo scaffold). Product integration is context-dependent: interview the
+host app’s lifecycle, pick a pattern (static load / generate-once /
+warm backup / overlap / reactive params), then replace the demo.
+Do not invent generation UX without answering the latency and secret-key
+questions in that doc.
+
 ## Code and CI conventions
 
 - SDK is published to npm as `@underscore-audio/sdk`. Wizard is

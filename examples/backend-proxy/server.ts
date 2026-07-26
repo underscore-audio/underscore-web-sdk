@@ -32,7 +32,7 @@ app.use(cors());
 app.use(express.json({ limit: "64kb" }));
 
 app.post("/proxy/generate", async (req, res) => {
-  const { compositionId, description } = req.body ?? {};
+  const { compositionId, description, kind, model, complexity } = req.body ?? {};
 
   if (typeof compositionId !== "string" || typeof description !== "string") {
     return res.status(400).json({
@@ -41,7 +41,13 @@ app.post("/proxy/generate", async (req, res) => {
   }
 
   try {
-    const { jobId, streamUrl } = await underscore.startGeneration(compositionId, description);
+    const { jobId, streamUrl } = await underscore.startGeneration(compositionId, description, {
+      ...(kind === "program" || kind === "synth" ? { kind } : {}),
+      ...(typeof model === "string" ? { model } : {}),
+      ...(complexity === "fast" || complexity === "balanced" || complexity === "rich"
+        ? { complexity }
+        : {}),
+    });
 
     /*
      * Return both the streamUrl (relative) and the host, so the browser

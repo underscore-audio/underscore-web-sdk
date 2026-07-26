@@ -79,6 +79,22 @@ export async function runWizard(options: WizardOptions): Promise<WizardResult> {
     writtenFiles.push(...scaffolded);
   }
 
+  /*
+   * Plumbing is done; product integration is not. Point humans and coding
+   * agents at INTEGRATE.md so they interview the host app before wiring
+   * generation, gestures, and mute into real routes.
+   */
+  p.note(
+    [
+      "Plumbing is done (SDK, WASM, headers, key, demo).",
+      "Next: wire Underscore into your product lifecycle — mute, gesture,",
+      "generate vs load, secret-key proxy. That step is context-dependent.",
+      "Read the integrate guide before replacing the demo:",
+      "https://github.com/underscore-audio/underscore-web-sdk/blob/main/INTEGRATE.md",
+      "(Also shipped inside the npm package as INTEGRATE.md.)",
+    ].join("\n"),
+    "Product integration"
+  );
   p.outro(pc.green("Underscore is ready. Start your dev server and you should hear sound."));
 
   return {

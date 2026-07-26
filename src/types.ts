@@ -404,15 +404,18 @@ export type GenerationEventType =
   | "progress"
   /** Streaming SuperCollider code chunk. `content` holds the partial text. */
   | "code"
-  /** Generation complete. `synthName` identifies the new synth. */
+  /** Generation complete. `synthName` identifies the new synth or program. */
   | "ready"
   /** Generation failed or was declined. `error` holds the message. */
   | "error"
   /** Unmapped server event. `raw` holds the unmodified payload. */
   | "raw";
 
+/** Artifact kind produced by a generation job. Absent means synth (legacy). */
+export type GenerationKind = "synth" | "program";
+
 /**
- * Event emitted during synth generation.
+ * Event emitted during synth or program generation.
  */
 export interface GenerationEvent {
   /** Event type */
@@ -421,8 +424,14 @@ export interface GenerationEvent {
   /** Content for thinking/progress/code events */
   content?: string;
 
-  /** Synth name for ready events */
+  /** Synth or program name for ready events */
   synthName?: string;
+
+  /**
+   * Artifact kind for ready events. `"program"` when the job produced a
+   * multi-synth program; `"synth"` (or absent) for a single synth.
+   */
+  kind?: GenerationKind;
 
   /** Error message for error events */
   error?: string;

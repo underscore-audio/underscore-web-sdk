@@ -12,6 +12,7 @@
 import {
   Underscore,
   Synth,
+  Program,
   ApiError,
   AudioError,
   SynthError,
@@ -37,6 +38,7 @@ const PROXY_URL = (import.meta.env.VITE_PROXY_URL as string) || "http://localhos
 
 let client: Underscore | null = null;
 let synth: Synth | null = null;
+let program: Program | null = null;
 let isMuted = false;
 
 type LogType = "info" | "error" | "warn";
@@ -267,10 +269,21 @@ generateBtn.addEventListener("click", async () => {
       synth.stop();
     }
 
+    /*
+     * Demo defaults to a multi-synth program on Opus 5 so third-party
+     * apps can copy the Makespell-shaped dogfood path. Override via the
+     * prompt UI later if you want a single synth instead.
+     */
     const proxyResp = await fetch(`${PROXY_URL}/proxy/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ compositionId, description: prompt }),
+      body: JSON.stringify({
+        compositionId,
+        description: prompt,
+        kind: "program",
+        // Prefer complexity for third-party apps; pin model only when dogfooding a tier.
+        complexity: "rich",
+      }),
     });
 
     if (!proxyResp.ok) {
@@ -301,9 +314,23 @@ generateBtn.addEventListener("click", async () => {
         case "code":
           break;
         case "ready":
+          if (event.program) {
+            log(`Generated program: ${event.program.name}`, "info");
+            program = event.program;
+            synth = null;
+            renderParams();
+            await program.play();
+            setStatus("Playing", "playing");
+            playBtn.disabled = true;
+            stopBtn.disabled = false;
+            muteBtn.disabled = false;
+            loadBtn.disabled = true;
+            break;
+          }
           if (!event.synth) break;
           log(`Generated: ${event.synth.name}`, "info");
           synth = event.synth;
+          program = null;
           renderParams();
           await synth.play();
           setStatus("Playing", "playing");
