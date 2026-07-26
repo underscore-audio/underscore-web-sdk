@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- `GenerateRequest.model` is now a closed catalogue enum rather than an
+  open string: `"claude-sonnet-5" | "claude-opus-5" | "claude-fable-5" |
+"gpt-5.6-luna" | "gpt-5.6-terra" | "gpt-5.6-sol" | "grok-4.5"`.
+  Prefer `complexity` for stable dialing; pins outside this set are
+  rejected by the API.
+
 ### Added
 
 - **[INTEGRATE.md](./INTEGRATE.md)** — agent-facing guide for wiring

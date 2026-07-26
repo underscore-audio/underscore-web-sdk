@@ -44,7 +44,7 @@ from the wizard outro and from
    serves the page (dev and prod). Needed for SharedArrayBuffer / WASM.
 4. **Do not ship the wizard demo as product UX.**
 5. **Prefer `complexity` over pinning `model`** unless you explicitly
-   need a specific backend model.
+   need a catalogue id (`claude-*-5`, `gpt-5.6-*`, `grok-4.5`).
 6. **Fail soft.** Music outages must not brick core product flows.
 
 ---

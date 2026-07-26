@@ -488,7 +488,7 @@ describe("Underscore", () => {
       });
       await client.startGeneration("cmp_123", "warm pad", {
         complexity: "fast",
-        model: "some-model-id",
+        model: "claude-opus-5",
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
@@ -498,7 +498,7 @@ describe("Underscore", () => {
           body: JSON.stringify({
             description: "warm pad",
             complexity: "fast",
-            model: "some-model-id",
+            model: "claude-opus-5",
           }),
         })
       );
