@@ -151,17 +151,7 @@ export const CreateCompositionResponseSchema = z.object({
 export const GenerateRequestSchema = z.object({
   description: z.string().trim().min(1),
   complexity: z.enum(["fast", "balanced", "rich"]).optional(),
-  model: z
-    .enum([
-      "claude-sonnet-5",
-      "claude-opus-5",
-      "claude-fable-5",
-      "gpt-5.6-luna",
-      "gpt-5.6-terra",
-      "gpt-5.6-sol",
-      "grok-4.5",
-    ])
-    .optional(),
+  model: z.enum(["claude-sonnet-5", "claude-opus-5", "claude-fable-5", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "grok-4.5"]).optional(),
   kind: z.enum(["synth", "program"]).optional(),
 });
 

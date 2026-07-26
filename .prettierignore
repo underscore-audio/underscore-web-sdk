@@ -1,0 +1,3 @@
+# Generator output must match the backend contract check byte-for-byte.
+# Prettier wrapping long z.enum([...]) lines makes check:sdk-contract fail.
+src/generated/
