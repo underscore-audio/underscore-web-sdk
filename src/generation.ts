@@ -45,13 +45,18 @@ export interface StartGenerationOptions {
    * model generations.
    */
   model?: GenerateRequest["model"];
+  /**
+   * Artifact to generate. `"synth"` (default) produces a single SynthDef
+   * with optional score; `"program"` produces a multi-synth arranged piece.
+   */
+  kind?: GenerateRequest["kind"];
 }
 
 /**
  * Generation tuning knobs shared by the `Underscore` client methods.
  * Subset of {@link StartGenerationOptions} without the addressing fields.
  */
-export type GenerationOptions = Pick<StartGenerationOptions, "complexity" | "model">;
+export type GenerationOptions = Pick<StartGenerationOptions, "complexity" | "model" | "kind">;
 
 export interface StartGenerationResult {
   jobId: string;
@@ -73,7 +78,7 @@ export async function startGeneration(
   apiKey: string,
   options: StartGenerationOptions
 ): Promise<StartGenerationResult> {
-  const { compositionId, description, complexity, model } = options;
+  const { compositionId, description, complexity, model, kind } = options;
 
   /*
    * JSON.stringify drops undefined-valued keys, so omitted knobs never
@@ -87,7 +92,7 @@ export async function startGeneration(
       "Underscore-API-Key": apiKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ description, complexity, model }),
+    body: JSON.stringify({ description, complexity, model, kind }),
   });
 
   if (!response.ok) {
@@ -296,6 +301,7 @@ interface BackendEvent {
   content?: string;
   phase?: string;
   synthName?: string;
+  kind?: "synth" | "program";
   technical?: string;
   friendly?: string;
   reason?: string;
@@ -343,7 +349,11 @@ export function mapBackendEvent(data: BackendEvent): GenerationEvent | null {
       };
 
     case "complete":
-      return { type: "ready", synthName: data.synthName };
+      return {
+        type: "ready",
+        synthName: data.synthName,
+        ...(data.kind ? { kind: data.kind } : {}),
+      };
 
     case "error":
       return {

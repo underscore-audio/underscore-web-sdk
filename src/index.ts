@@ -66,6 +66,40 @@ export {
   type SubscribeToGenerationOptions,
 } from "./generation.js";
 
+/**
+ * Stream events from {@link Underscore.subscribeToGeneration} /
+ * {@link Underscore.generate}. When auto-load is enabled, terminal
+ * `ready` events are discriminated by `kind` and carry exactly one
+ * attached artifact.
+ */
+export type ReadyWithProgram = GenerationEvent & {
+  type: "ready";
+  kind: "program";
+  synthName: string;
+  program: Program;
+  synth?: never;
+};
+
+export type ReadyWithSynth = GenerationEvent & {
+  type: "ready";
+  kind: "synth";
+  synthName: string;
+  synth: Synth;
+  program?: never;
+};
+
+export type GenerationStreamEvent = GenerationEvent | ReadyWithProgram | ReadyWithSynth;
+
+export function isReadyWithProgram(event: GenerationStreamEvent): event is ReadyWithProgram {
+  return (
+    event.type === "ready" && event.kind === "program" && "program" in event && !!event.program
+  );
+}
+
+export function isReadyWithSynth(event: GenerationStreamEvent): event is ReadyWithSynth {
+  return event.type === "ready" && event.kind === "synth" && "synth" in event && !!event.synth;
+}
+
 const DEFAULT_WASM_BASE_URL = "/supersonic/";
 const DEFAULT_API_BASE_URL = "https://underscore.audio";
 
@@ -286,35 +320,29 @@ export class Underscore {
    * @param streamUrlOrPath Absolute or relative stream URL from `startGeneration`.
    * @param options         Optional bag:
    *   - `compositionId`: when provided, the SDK auto-loads the finished
-   *     synth on the terminal `ready` event and attaches it as
-   *     `event.synth`, ready to `.play()`. When omitted, consumers
-   *     receive protocol events only and can load the synth themselves
-   *     via {@link Underscore.loadSynth}.
+   *     artifact on the terminal `ready` event — `event.synth` for
+   *     `kind: "synth"` (default), or `event.program` for
+   *     `kind: "program"`. When omitted, consumers receive protocol
+   *     events only and can load via {@link Underscore.loadSynth} /
+   *     {@link Underscore.loadProgram}.
    *   - `signal`: optional AbortSignal; aborting closes the SSE socket
    *     and ends the generator. Useful for canceling on effect teardown,
    *     navigation, or a watchdog timeout.
    */
   async *subscribeToGeneration(
     streamUrlOrPath: string,
-    options: { compositionId?: string; signal?: AbortSignal } = {}
-  ): AsyncGenerator<GenerationEvent & { synth?: Synth }> {
+    options: {
+      compositionId?: string;
+      signal?: AbortSignal;
+      /** Fallback when a ready event omits `kind` (prefer setting this to the job's kind). */
+      kind?: GenerationEvent["kind"];
+    } = {}
+  ): AsyncGenerator<GenerationStreamEvent> {
     const baseUrl = this.config.baseUrl || DEFAULT_API_BASE_URL;
-    const { compositionId, signal } = options;
+    const { compositionId, signal, kind: kindHint } = options;
 
     for await (const event of subscribeToGeneration(streamUrlOrPath, { baseUrl, signal })) {
-      if (event.type === "ready" && event.synthName && compositionId) {
-        try {
-          const synth = await this.loadSynth(compositionId, event.synthName);
-          yield { ...event, synth };
-        } catch (error) {
-          yield {
-            type: "error",
-            error: error instanceof Error ? error.message : "Failed to load synth",
-          };
-        }
-      } else {
-        yield event;
-      }
+      yield* this.attachReadyArtifact(event, compositionId, kindHint);
     }
   }
 
@@ -337,7 +365,7 @@ export class Underscore {
     compositionId: string,
     description: string,
     options: GenerationOptions = {}
-  ): AsyncGenerator<GenerationEvent & { synth?: Synth }> {
+  ): AsyncGenerator<GenerationStreamEvent> {
     const baseUrl = this.config.baseUrl || DEFAULT_API_BASE_URL;
 
     for await (const event of streamGeneration(baseUrl, this.config.apiKey, {
@@ -345,19 +373,56 @@ export class Underscore {
       description,
       ...options,
     })) {
-      if (event.type === "ready" && event.synthName) {
-        try {
-          const synth = await this.loadSynth(compositionId, event.synthName);
-          yield { ...event, synth };
-        } catch (error) {
-          yield {
-            type: "error",
-            error: error instanceof Error ? error.message : "Failed to load synth",
-          };
-        }
+      yield* this.attachReadyArtifact(event, compositionId, options.kind);
+    }
+  }
+
+  /**
+   * On terminal `ready`, optionally auto-load the finished synth or program.
+   * `kindHint` covers streams that omit `kind` on complete (legacy synth).
+   */
+  private async *attachReadyArtifact(
+    event: GenerationEvent,
+    compositionId: string | undefined,
+    kindHint?: GenerationEvent["kind"]
+  ): AsyncGenerator<GenerationStreamEvent> {
+    if (event.type !== "ready" || !event.synthName || !compositionId) {
+      yield event;
+      return;
+    }
+    const kind = event.kind ?? kindHint ?? "synth";
+    try {
+      if (kind === "program") {
+        const program = await this.loadProgram(compositionId, event.synthName);
+        const ready: ReadyWithProgram = {
+          ...event,
+          type: "ready",
+          kind: "program",
+          synthName: event.synthName,
+          program,
+        };
+        yield ready;
       } else {
-        yield event;
+        const synth = await this.loadSynth(compositionId, event.synthName);
+        const ready: ReadyWithSynth = {
+          ...event,
+          type: "ready",
+          kind: "synth",
+          synthName: event.synthName,
+          synth,
+        };
+        yield ready;
       }
+    } catch (error) {
+      yield {
+        type: "error",
+        error:
+          error instanceof Error
+            ? error.message
+            : kind === "program"
+              ? "Failed to load program"
+              : "Failed to load synth",
+      };
     }
   }
 

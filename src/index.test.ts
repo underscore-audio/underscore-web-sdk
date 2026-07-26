@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { Underscore, Synth } from "./index.js";
+import { Underscore, Synth, isReadyWithProgram, isReadyWithSynth } from "./index.js";
 import { MockEventSource } from "../test/setup.js";
 
 /*
@@ -348,6 +348,98 @@ describe("Underscore", () => {
       expect(done).toBe(false);
       expect(value?.type).toBe("error");
       expect(typeof value?.error).toBe("string");
+      expect(value?.synth).toBeUndefined();
+    });
+
+    it("uses kind hint to load a Program when complete omits kind", async () => {
+      const mockManifest = {
+        format: 1,
+        name: "hinted_program",
+        title: "Hinted",
+        description: "A slow meditation",
+        bpm: 60,
+        beatsPerBar: 4,
+        durationBeats: 154,
+        synthdefs: ["bs_pad"],
+        buses: [],
+        sections: [{ name: "breath", beat: 0 }],
+        setup: [{ cmd: "/g_new", args: [10, 0, 0] }],
+        events: [{ beat: 0, cmd: "/s_new", args: ["bs_pad", 100, 1, 10] }],
+      };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockManifest),
+      });
+      mockFetch.mockResolvedValue({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(32)),
+      });
+
+      const client = new Underscore({ apiKey: "us_pub_test" });
+      const iter = client.subscribeToGeneration("/api/stream/cmp_123/job_abc", {
+        compositionId: "cmp_123",
+        kind: "program",
+      });
+      const firstPromise = iter.next();
+      await nextTick();
+
+      const es = MockEventSource.instances.at(-1)!;
+      es._simulateMessage(JSON.stringify({ type: "complete", synthName: "hinted_program" }));
+
+      const { value } = await firstPromise;
+      expect(value?.type).toBe("ready");
+      expect(value?.kind).toBe("program");
+      expect(value?.program?.name).toBe("hinted_program");
+      expect(value?.synth).toBeUndefined();
+      expect(isReadyWithProgram(value!)).toBe(true);
+      expect(isReadyWithSynth(value!)).toBe(false);
+    });
+
+    it("attaches a loaded Program to the ready event when kind is program", async () => {
+      const mockManifest = {
+        format: 1,
+        name: "pine_needle_drift",
+        title: "Pine Needle Drift",
+        description: "A slow meditation",
+        bpm: 60,
+        beatsPerBar: 4,
+        durationBeats: 154,
+        synthdefs: ["bs_pad"],
+        buses: [],
+        sections: [{ name: "breath", beat: 0 }],
+        setup: [{ cmd: "/g_new", args: [10, 0, 0] }],
+        events: [{ beat: 0, cmd: "/s_new", args: ["bs_pad", 100, 1, 10] }],
+      };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockManifest),
+      });
+      mockFetch.mockResolvedValue({
+        ok: true,
+        arrayBuffer: () => Promise.resolve(new ArrayBuffer(32)),
+      });
+
+      const client = new Underscore({ apiKey: "us_pub_test" });
+      const iter = client.subscribeToGeneration("/api/stream/cmp_123/job_abc", {
+        compositionId: "cmp_123",
+      });
+      const firstPromise = iter.next();
+      await nextTick();
+
+      const es = MockEventSource.instances.at(-1)!;
+      es._simulateMessage(
+        JSON.stringify({
+          type: "complete",
+          synthName: "pine_needle_drift",
+          kind: "program",
+        })
+      );
+
+      const { value, done } = await firstPromise;
+      expect(done).toBe(false);
+      expect(value?.type).toBe("ready");
+      expect(value?.kind).toBe("program");
+      expect(value?.program?.name).toBe("pine_needle_drift");
       expect(value?.synth).toBeUndefined();
     });
   });

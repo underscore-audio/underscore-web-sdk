@@ -24,6 +24,12 @@ The wizard never uploads your code. It reads a small number of local files to
 pick keyword hints and calls the public Underscore discover endpoint with those
 tags.
 
+The wizard does **not** ask how music should fit your product (per-session
+generation, ambient bed, mute UX, latency gates, etc.). After it finishes,
+follow [INTEGRATE.md](../../INTEGRATE.md) — especially if an AI agent is
+doing the wiring. That doc is the interview + pattern guide for host-app
+integration.
+
 ## Development
 
 ```bash

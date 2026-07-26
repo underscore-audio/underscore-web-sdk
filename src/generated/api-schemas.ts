@@ -152,6 +152,7 @@ export const GenerateRequestSchema = z.object({
   description: z.string().trim().min(1),
   complexity: z.enum(["fast", "balanced", "rich"]).optional(),
   model: z.string().optional(),
+  kind: z.enum(["synth", "program"]).optional(),
 });
 
 export const GenerateResponseSchema = z.object({

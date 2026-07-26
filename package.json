@@ -15,7 +15,10 @@
     "underscore-sdk": "./dist/bin/copy-assets.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "INTEGRATE.md",
+    "README.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc",

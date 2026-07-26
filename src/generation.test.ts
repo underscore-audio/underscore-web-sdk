@@ -64,7 +64,7 @@ describe("generation", () => {
       expect(result.streamUrl).toBe("/api/stream/cmp_123/job_abc");
     });
 
-    it("includes complexity and model in the request body when provided", async () => {
+    it("includes complexity, model, and kind in the request body when provided", async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: () =>
@@ -81,6 +81,7 @@ describe("generation", () => {
         description: "Make a warm pad",
         complexity: "fast",
         model: "some-model-id",
+        kind: "program",
       });
 
       expect(mockFetch).toHaveBeenCalledWith(
@@ -90,6 +91,7 @@ describe("generation", () => {
             description: "Make a warm pad",
             complexity: "fast",
             model: "some-model-id",
+            kind: "program",
           }),
         })
       );
@@ -403,6 +405,21 @@ describe("generation", () => {
       expect(mapBackendEvent({ type: "complete", synthName: "warm_pad" })).toEqual({
         type: "ready",
         synthName: "warm_pad",
+      });
+    });
+
+    it("maps complete with kind:program onto ready", async () => {
+      const { mapBackendEvent } = await import("./generation.js");
+      expect(
+        mapBackendEvent({
+          type: "complete",
+          synthName: "pine_needle_drift",
+          kind: "program",
+        })
+      ).toEqual({
+        type: "ready",
+        synthName: "pine_needle_drift",
+        kind: "program",
       });
     });
 
