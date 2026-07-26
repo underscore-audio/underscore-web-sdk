@@ -60,7 +60,7 @@ const { streamUrl, host } = await fetch("/api/underscore/generate", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({
-    description: "Slow ambient bed for a casual puzzle game, ~2 minutes, loopable.",
+    description: "Slow ambient bed for a calm focus session, ~2 minutes, loopable.",
     kind: "program", // or omit for single synth
     complexity: "rich", // prefer over model pins
   }),
@@ -138,15 +138,15 @@ Wizard / discover / curated composition. `init` → `loadSynth` or
 Proxy `startGeneration` → SSE → auto-load → play. Show a loading state.
 Fine when users expect a wait.
 
-### C — Warm backup + gate (recommended for games)
+### C — Warm backup + gate (recommended for interactive apps)
 
-Keep **one** ready Program (or Synth) ahead of the player. On Play:
-claim → load → play (gate UI until audible or soft-fail), then refill
-in the background. Overlap music prepare with other loading work on the
-**same gesture turn** (critical on iOS Safari).
+Keep **one** ready Program (or Synth) ahead of the user. On the entry
+gesture (Play / Start): claim → load → play (gate UI until audible or
+soft-fail), then refill in the background. Overlap music prepare with
+other loading work on the **same gesture turn** (critical on iOS Safari).
 
-Reference consumer: [Makespell](https://github.com/po/makespell) dogfood
-integration (`web/src/audio/`, Rust `/api/underscore/generate` proxy).
+See `examples/backend-proxy/` for the secret-key generate + browser
+subscribe shape this pattern uses.
 
 ### D — Parametric / reactive (later)
 
@@ -204,4 +204,3 @@ Server: secret key + composition id → Underscore
 - `examples/backend-proxy/` — secret-key proxy + browser subscribe
 - `examples/hello-world/` — minimal play
 - Server-side generation docs — proxy contract
-- Makespell README § Underscore — full local dogfood runbook (pattern C)

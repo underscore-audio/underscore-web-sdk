@@ -270,9 +270,9 @@ generateBtn.addEventListener("click", async () => {
     }
 
     /*
-     * Demo defaults to a multi-synth program on Opus 5 so third-party
-     * apps can copy the Makespell-shaped dogfood path. Override via the
-     * prompt UI later if you want a single synth instead.
+     * Demo defaults to a multi-synth program with complexity:rich.
+     * Prefer complexity over pinning model unless you need a specific tier.
+     * Override via the prompt UI later if you want a single synth instead.
      */
     const proxyResp = await fetch(`${PROXY_URL}/proxy/generate`, {
       method: "POST",
@@ -281,7 +281,6 @@ generateBtn.addEventListener("click", async () => {
         compositionId,
         description: prompt,
         kind: "program",
-        // Prefer complexity for third-party apps; pin model only when dogfooding a tier.
         complexity: "rich",
       }),
     });
