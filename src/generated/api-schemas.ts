@@ -16,6 +16,7 @@ export const ParamMetadataSchema = z.object({
   max: z.number(),
   scale: ParamScaleSchema.optional(),
   unit: z.string().optional(),
+  step: z.number().positive().optional(),
   description: z.string(),
 });
 

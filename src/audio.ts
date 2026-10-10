@@ -15,6 +15,7 @@ import {
   clampMasterVolume,
   spliceMasterGain,
 } from "./audio/master-volume.js";
+import { resumeAudioContext } from "./audio/resume.js";
 import { INIT_TIMEOUT_MS, createInitTimeout } from "./audio/init-watchdog.js";
 
 export interface AudioEngineConfig {
@@ -52,6 +53,8 @@ export class AudioEngine {
   onBeforePlayback: (() => void) | null = null;
   private _isPlaying = false;
   private initPromise: Promise<void> | null = null;
+  private initialized = false;
+  private analyser: AnalyserNode | null = null;
   private listeners: Set<SynthStateListener> = new Set();
   private paramValues: Map<string, number> = new Map();
   private config: AudioEngineConfig;
@@ -102,7 +105,7 @@ export class AudioEngine {
    * call would poison every subsequent attempt with the same hung promise.
    */
   async init(): Promise<void> {
-    if (this.sonic) return;
+    if (this.initialized) return;
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = this.initWithWatchdog().catch((err) => {
@@ -138,6 +141,7 @@ export class AudioEngine {
          */
       }
       this.sonic = null;
+      this.initialized = false;
       throw err;
     } finally {
       cancel();
@@ -145,6 +149,17 @@ export class AudioEngine {
   }
 
   private async doInit(): Promise<void> {
+    const session =
+      typeof navigator === "undefined"
+        ? undefined
+        : (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+    if (session) {
+      try {
+        session.type = "playback";
+      } catch {
+        this.log.debug("Audio-session playback hint unavailable");
+      }
+    }
     const { SuperSonic } = await import("supersonic-scsynth");
 
     const workerBaseUrl = this.config.workerBaseUrl || `${this.config.wasmBaseUrl}workers/`;
@@ -216,6 +231,14 @@ export class AudioEngine {
     }
 
     this.masterGain = spliceMasterGain(sonic, this.masterVolume);
+    const ctx = sonic.audioContext;
+    if (ctx && this.masterGain && typeof ctx.createAnalyser === "function") {
+      this.analyser = ctx.createAnalyser();
+      this.analyser.fftSize = 512;
+      this.analyser.smoothingTimeConstant = 0.6;
+      this.masterGain.connect(this.analyser);
+    }
+    this.initialized = true;
     this.notify();
   }
 
@@ -223,7 +246,7 @@ export class AudioEngine {
    * Check if the engine is initialized.
    */
   isInitialized(): boolean {
-    return !!this.sonic;
+    return this.initialized;
   }
 
   /**
@@ -255,6 +278,22 @@ export class AudioEngine {
    *
    * @internal
    */
+  resume(): Promise<void> {
+    return resumeAudioContext(this.audioContext);
+  }
+
+  get playingNodeId(): number | null {
+    return this._isPlaying ? this.currentNodeId : null;
+  }
+
+  get analyserNode(): AnalyserNode | null {
+    return this.analyser;
+  }
+
+  cacheParams(params: Record<string, number>): void {
+    for (const [name, value] of Object.entries(params)) this.paramValues.set(name, value);
+  }
+
   get oscEncoder(): OscBundleEncoder | null {
     return this.osc;
   }
@@ -375,10 +414,7 @@ export class AudioEngine {
 
     this.onBeforePlayback?.();
 
-    const ctx = this.sonic.audioContext as AudioContext;
-    if (ctx?.state === "suspended") {
-      await ctx.resume();
-    }
+    await this.resume();
 
     // Stop current synth if playing
     if (this._isPlaying) {
@@ -552,10 +588,7 @@ export class AudioEngine {
 
     this.onBeforePlayback?.();
 
-    const ctx = this.sonic.audioContext as AudioContext;
-    if (ctx?.state === "suspended") {
-      await ctx.resume();
-    }
+    await this.resume();
 
     if (this.crossfadeInProgress) {
       this.log.warn("Crossfade already in progress, forcing completion");
@@ -578,6 +611,7 @@ export class AudioEngine {
     this._isPlaying = true;
     this.paramValues.clear();
     this.paramValues.set("amp", 0);
+    this.notify();
 
     if (oldNodeId !== null) {
       this.outgoingNodeId = oldNodeId;
