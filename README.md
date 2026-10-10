@@ -545,6 +545,12 @@ changes. Seeking takes seconds and preserves the current playing/stopped intent.
 `setVolume` controls the shared output, and `analyser` exposes visualization data
 through the engine's supported output routing.
 
+Calling `play()` while already playing repairs a suspended or interrupted audio
+context without restarting its graph, score, or manual controls. Hosts may call
+it when returning to the foreground; a denied resume rejects with a retryable
+audio error. A handle's `stop()` also cancels its pending initialization or upload,
+and cannot stop a newer source owned by another handle.
+
 For a synth, `setParam` explicitly takes manual control on the first actual value
 change. It captures every exposed parameter and the score position, holds all
 parameter automation, and retains that snapshot through subsequent edits.

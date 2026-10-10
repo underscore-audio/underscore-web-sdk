@@ -190,6 +190,7 @@ export class PlaybackCore {
     { snapshot: ManualSnapshot; values: Record<string, number> }
   >();
   private generation = 0;
+  private activating: { identity: string; token: number } | null = null;
   private operations: Promise<void> = Promise.resolve();
   private timer: ReturnType<typeof setInterval> | null = null;
   private listeners = new Set<() => void>();
@@ -293,6 +294,7 @@ export class PlaybackCore {
       return Promise.reject(new SynthError("Playback position must be finite"));
     this.rememberManual();
     const token = ++this.generation;
+    this.activating = { identity: artifact.identity, token };
     this.audio.cancelCrossfade();
     this.score.cancel();
     this.clearTicker();
@@ -321,6 +323,8 @@ export class PlaybackCore {
       const remembered = this.manualStates.get(artifact.identity);
       if (remembered) this.restoreManual(remembered.snapshot, remembered.values);
       if (options.play) await this.start(artifact, this.snapshot.positionSec, token);
+    }).finally(() => {
+      if (this.activating?.token === token) this.activating = null;
     });
   }
 
@@ -426,10 +430,17 @@ export class PlaybackCore {
     const artifact = this.active;
     if (!artifact)
       return Promise.reject(new SynthError("Select a prepared artifact before playing"));
-    const token = ++this.generation;
+    const repairing = this.snapshot.playing;
+    const token = repairing ? this.generation : ++this.generation;
     return this.enqueue(async () => {
-      if (token !== this.generation) return;
-      if (this.snapshot.playing) return;
+      if (token !== this.generation || this.active !== artifact) return;
+      if (repairing || this.snapshot.playing) {
+        if (!this.snapshot.playing) return;
+        await this.audio.resume();
+        if (token === this.generation && this.active === artifact && this.snapshot.playing)
+          this.update({ error: null });
+        return;
+      }
       await this.start(
         artifact,
         this.snapshot.positionSec >= duration(artifact) ? 0 : this.snapshot.positionSec,
@@ -438,7 +449,9 @@ export class PlaybackCore {
     });
   }
   stop(identity?: string): Promise<void> {
-    if (identity && identity !== this.snapshot.identity) return Promise.resolve();
+    const pending = this.activating?.token === this.generation ? this.activating.identity : null;
+    if (identity && identity !== (pending ?? this.snapshot.identity)) return Promise.resolve();
+    this.activating = null;
     ++this.generation;
     const position = this.snapshot.manual
       ? this.snapshot.positionSec
@@ -634,8 +647,7 @@ export class PlaybackCore {
         selected() && this.snapshot.playing
           ? this.seek((beat * 60) / artifact.manifest.bpm)
           : this.activate(artifact, { play: true, startSec: (beat * 60) / artifact.manifest.bpm }),
-      stop: () =>
-        selected() && this.snapshot.playing ? this.stop(artifact.identity) : Promise.resolve(),
+      stop: () => this.stop(artifact.identity),
       isPlaying: () => selected() && this.snapshot.playing,
       subscribe: (listener) => {
         const notify = (): void => {
@@ -673,7 +685,7 @@ export class PlaybackCore {
     return {
       play: () => this.activate(artifact, { play: true }),
       stop: () => {
-        if (selected() && this.snapshot.playing) void this.stop(artifact.identity).catch(() => {});
+        void this.stop(artifact.identity).catch(() => {});
       },
       setParams: (params) => {
         if (selected() && this.snapshot.playing)
@@ -699,6 +711,7 @@ export class PlaybackCore {
 
   async crossfade(artifact: PreparedSynth, seconds = 3): Promise<void> {
     const token = ++this.generation;
+    this.activating = { identity: artifact.identity, token };
     this.score.cancel();
     this.clearTicker();
     await this.enqueue(async () => {
@@ -731,6 +744,8 @@ export class PlaybackCore {
       this.loadedIdentity = artifact.identity;
       this.update({ playing: true });
       this.startScore(artifact, 0);
+    }).finally(() => {
+      if (this.activating?.token === token) this.activating = null;
     });
   }
 }

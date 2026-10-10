@@ -126,6 +126,181 @@ describe("PlaybackCore", () => {
     vi.useRealTimers();
   });
 
+  it("resumes a suspended playing context without rebuilding the graph or changing held values", async () => {
+    const h = harness();
+    await h.core.activate(synth(), { play: true });
+    await h.core.setParam("cutoff", 700);
+    const before = h.core.getSnapshot();
+    const plays = h.engine.play.mock.calls.length;
+    h.sonic.audioContext.state = "suspended";
+    h.engine.resume.mockImplementationOnce(async () => {
+      h.sonic.audioContext.state = "running";
+    });
+    await h.core.play();
+    expect(h.engine.resume).toHaveBeenCalledTimes(1);
+    expect(h.engine.play).toHaveBeenCalledTimes(plays);
+    expect(h.core.getSnapshot()).toMatchObject({
+      playing: true,
+      params: before.params,
+      manual: before.manual,
+      positionSec: before.positionSec,
+      error: null,
+    });
+    await h.core.stop();
+  });
+
+  it.each([false, true])(
+    "foreground repair never restarts the previous source across a queued selection (play=%s)",
+    async (play) => {
+      const h = harness();
+      await h.core.activate(synth("old"), { play: true });
+      const plays = h.engine.play.mock.calls.length;
+      const next = h.core.activate(synth("next"), { play });
+      const repair = h.core.play();
+      await Promise.all([next, repair]);
+      expect(h.core.getSnapshot()).toMatchObject({ identity: "next", playing: play });
+      expect(h.engine.play).toHaveBeenCalledTimes(plays + (play ? 1 : 0));
+      await h.core.stop();
+    }
+  );
+
+  it("clears superseded activation ownership and keeps a late resume silent after reset", async () => {
+    const h = harness();
+    await h.core.activate(synth("old"), { play: true });
+    const stale = h.core.synthDriver(synth("stale"));
+    const start = stale.play();
+    const seek = h.core.seek(1);
+    await Promise.all([start, seek]);
+    stale.stop();
+    expect(h.core.getSnapshot()).toMatchObject({ identity: "old", playing: true });
+    let release!: () => void;
+    h.engine.resume.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        })
+    );
+    const repair = h.core.play();
+    for (let i = 0; i < 12 && !release; i++) await Promise.resolve();
+    expect(release).toBeDefined();
+    const reset = h.core.reset();
+    release();
+    await Promise.all([repair, reset]);
+    expect(h.core.getSnapshot()).toMatchObject({ identity: null, playing: false, error: null });
+    await h.core.activate(synth("next"), { play: false });
+    stale.stop();
+    expect(h.core.getSnapshot()).toMatchObject({ identity: "next", playing: false });
+  });
+
+  it("reports denied context recovery and ignores its late failure after Stop", async () => {
+    const h = harness();
+    await h.core.activate(synth(), { play: true });
+    h.engine.resume.mockRejectedValueOnce(new Error("Tap Play again to enable sound"));
+    await expect(h.core.play()).rejects.toThrow("Tap Play again");
+    expect(h.core.getSnapshot().error).toBe("Tap Play again to enable sound");
+    let deny!: (error: Error) => void;
+    h.engine.resume.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          deny = reject;
+        })
+    );
+    const repair = h.core.play();
+    for (let i = 0; i < 12 && !deny; i++) await Promise.resolve();
+    expect(deny).toBeDefined();
+    const stop = h.core.stop();
+    const error = h.core.getSnapshot().error;
+    deny(new Error("Late failure"));
+    await expect(repair).rejects.toThrow("Late failure");
+    await stop;
+    expect(h.core.getSnapshot()).toMatchObject({ playing: false, error });
+  });
+
+  it.each(["synth", "program"] as const)(
+    "the %s handle can cancel Play before selection is published",
+    async (kind) => {
+      const h = harness();
+      const handle =
+        kind === "synth"
+          ? h.core.synthDriver(synth())
+          : h.core.createProgram(
+              prepareProgram({
+                identity: "one",
+                name: "piece",
+                manifest,
+                synthdefs: new Map([["pad", new ArrayBuffer(4)]]),
+              })
+            );
+      const start = handle.play();
+      await handle.stop();
+      await start;
+      expect(h.engine.play).not.toHaveBeenCalled();
+      expect(h.sends.some((packet) => packet[0] === "/s_new")).toBe(false);
+      expect(h.core.getSnapshot().playing).toBe(false);
+    }
+  );
+
+  it.each([
+    ["synth", "initialization"],
+    ["synth", "upload"],
+    ["program", "initialization"],
+    ["program", "upload"],
+  ] as const)("the %s handle cancels Play during deferred %s", async (kind, stage) => {
+    const h = harness();
+    let release!: () => void;
+    const pending = () =>
+      new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    if (stage === "initialization") h.engine.init.mockImplementationOnce(pending);
+    else h.engine.loadSynthdefFromData.mockImplementationOnce(pending);
+    const handle =
+      kind === "synth"
+        ? h.core.synthDriver(synth())
+        : h.core.createProgram(
+            prepareProgram({
+              identity: "one",
+              name: "piece",
+              manifest,
+              synthdefs: new Map([["pad", new ArrayBuffer(4)]]),
+            })
+          );
+    const start = handle.play();
+    for (let i = 0; i < 20 && !release; i++) await Promise.resolve();
+    expect(release).toBeDefined();
+    const stop = handle.stop();
+    release();
+    await Promise.all([start, stop]);
+    expect(h.engine.play).not.toHaveBeenCalled();
+    expect(h.sends.some((packet) => packet[0] === "/s_new")).toBe(false);
+    expect(h.core.getSnapshot().playing).toBe(false);
+  });
+
+  it("an old handle cannot stop a newer pending or active source", async () => {
+    const h = harness();
+    const old = h.core.synthDriver(synth("old"));
+    const next = h.core.synthDriver(synth("next"));
+    await old.play();
+    let release!: () => void;
+    h.engine.init.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        })
+    );
+    const start = next.play();
+    old.stop();
+    for (let i = 0; i < 20 && !release; i++) await Promise.resolve();
+    expect(release).toBeDefined();
+    old.stop();
+    release();
+    await start;
+    expect(h.core.getSnapshot()).toMatchObject({ identity: "next", playing: true });
+    old.stop();
+    expect(h.core.getSnapshot()).toMatchObject({ identity: "next", playing: true });
+    await next.stop();
+  });
+
   it("prepares B without uploading or changing the sounding source A", async () => {
     const h = harness();
     await h.core.activate(synth(), { play: true });
