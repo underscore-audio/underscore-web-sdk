@@ -137,9 +137,9 @@ export interface SubscribeToGenerationOptions {
  * Subscribe to a generation stream by URL. Browser-only (uses EventSource).
  *
  * Accepts either an absolute URL or the relative `streamUrl` returned by
- * `startGeneration`. When relative, `options.baseUrl` is prepended. No
- * API key is required -- the stream is protected by the unguessable
- * `jobId` embedded in the URL.
+ * `startGeneration`. When relative, `options.baseUrl` is prepended. Forward the
+ * returned URL unchanged: it includes a scoped stream credential, so no API key
+ * is required. Job identity alone does not grant access.
  *
  * @param streamUrlOrPath Absolute or relative stream URL.
  * @param options Optional bag: `baseUrl` to resolve relative paths,

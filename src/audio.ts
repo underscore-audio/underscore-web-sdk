@@ -16,7 +16,7 @@ import {
   spliceMasterGain,
 } from "./audio/master-volume.js";
 import { resumeAudioContext } from "./audio/resume.js";
-import { INIT_TIMEOUT_MS, createInitTimeout } from "./audio/init-watchdog.js";
+import { INIT_TIMEOUT_MS, RESOURCE_TIMEOUT_MS, createInitTimeout } from "./audio/init-watchdog.js";
 
 export interface AudioEngineConfig {
   wasmBaseUrl: string;
@@ -26,7 +26,7 @@ export interface AudioEngineConfig {
    * Override the engine init watchdog (milliseconds).
    *
    * Production code should leave this unset; it exists so tests can
-   * exercise the timeout path without sitting on a 10-second timer.
+   * exercise timeout paths without waiting for production deadlines.
    * Not surfaced through the public `Underscore` client to keep that
    * contract narrow.
    *
@@ -54,6 +54,8 @@ export class AudioEngine {
   private _isPlaying = false;
   private initPromise: Promise<void> | null = null;
   private initialized = false;
+  private initAttempt: symbol | null = null;
+  private initializingContext: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
   private listeners: Set<SynthStateListener> = new Set();
   private paramValues: Map<string, number> = new Map();
@@ -97,8 +99,8 @@ export class AudioEngine {
    * Initialize the audio engine.
    * Must be called from a user interaction (click/tap) due to browser autoplay policies.
    *
-   * If the underlying audio engine does not finish initializing within
-   * {@link INIT_TIMEOUT_MS}, the returned promise rejects with an
+   * Resource delivery is bounded separately from the engine boot deadline
+   * ({@link INIT_TIMEOUT_MS}). A stalled phase rejects with an
    * {@link AudioError} that explains the gesture requirement. The internal
    * init state is cleared on rejection so a retry from inside a real
    * gesture handler starts fresh; without this clear, an early pre-gesture
@@ -108,47 +110,6 @@ export class AudioEngine {
     if (this.initialized) return;
     if (this.initPromise) return this.initPromise;
 
-    this.initPromise = this.initWithWatchdog().catch((err) => {
-      this.initPromise = null;
-      throw err;
-    });
-    return this.initPromise;
-  }
-
-  private async initWithWatchdog(): Promise<void> {
-    const { timeoutPromise, cancel } = createInitTimeout(
-      this.config.initTimeoutMs ?? INIT_TIMEOUT_MS
-    );
-
-    try {
-      await Promise.race([this.doInit(), timeoutPromise]);
-    } catch (err) {
-      /*
-       * On timeout the partially-constructed SuperSonic instance is still
-       * polling its suspended AudioContext. Tear it down so the
-       * AudioContext slot is released (browsers cap them at ~6 per page)
-       * and the next gesture-driven retry can start cleanly. Best-effort
-       * -- supersonic versions that lack `shutdown` are tolerated.
-       */
-      try {
-        await this.sonic?.shutdown();
-      } catch {
-        /*
-         * Older supersonic builds without `shutdown` are tolerated --
-         * the partial instance will be garbage-collected once the
-         * AudioContext slot is released by the next gesture-driven
-         * retry's fresh `new SuperSonic()`.
-         */
-      }
-      this.sonic = null;
-      this.initialized = false;
-      throw err;
-    } finally {
-      cancel();
-    }
-  }
-
-  private async doInit(): Promise<void> {
     const session =
       typeof navigator === "undefined"
         ? undefined
@@ -160,7 +121,70 @@ export class AudioEngine {
         this.log.debug("Audio-session playback hint unavailable");
       }
     }
+    // Create and resume before imports or resource delivery consume the gesture.
+    const context =
+      typeof AudioContext === "undefined"
+        ? null
+        : new AudioContext({ latencyHint: "playback", sampleRate: 48000 });
+    this.initializingContext = context;
+    const unlocked = resumeAudioContext(context);
+    const attempt = Symbol("audio initialization");
+    this.initAttempt = attempt;
+    this.initPromise = this.initWithWatchdog(attempt, context, unlocked).catch((err) => {
+      this.initPromise = null;
+      throw err;
+    });
+    return this.initPromise;
+  }
+
+  private async initWithWatchdog(
+    attempt: symbol,
+    context: AudioContext | null,
+    unlocked: Promise<void>
+  ): Promise<void> {
+    const deadline = createInitTimeout(this.config.initTimeoutMs ?? RESOURCE_TIMEOUT_MS);
+    try {
+      await Promise.race([
+        Promise.all([
+          unlocked,
+          this.doInit(attempt, context, () =>
+            deadline.restart(this.config.initTimeoutMs ?? INIT_TIMEOUT_MS)
+          ),
+        ]),
+        deadline.timeoutPromise,
+      ]);
+    } catch (err) {
+      this.initAttempt = null;
+      const sonic = this.sonic;
+      this.sonic = null;
+      this.initialized = false;
+      try {
+        await sonic?.shutdown();
+      } catch {
+        // Close our context even if a partially initialized engine cannot shut down.
+      }
+      if (context && context.state !== "closed") {
+        try {
+          await context.close();
+        } catch {
+          // A browser may have already released the failed context.
+        }
+      }
+      throw err;
+    } finally {
+      deadline.cancel();
+      if (this.initAttempt === attempt) this.initAttempt = null;
+      if (this.initializingContext === context) this.initializingContext = null;
+    }
+  }
+
+  private async doInit(
+    attempt: symbol,
+    context: AudioContext | null,
+    resourcesReady: () => void
+  ): Promise<void> {
     const { SuperSonic } = await import("supersonic-scsynth");
+    if (this.initAttempt !== attempt) return;
 
     const workerBaseUrl = this.config.workerBaseUrl || `${this.config.wasmBaseUrl}workers/`;
 
@@ -202,6 +226,7 @@ export class AudioEngine {
         numInputBusChannels: 2,
         numOutputBusChannels: 2,
       },
+      audioContext: context ?? undefined,
       audioContextOptions: {
         latencyHint: "playback",
         sampleRate: 48000,
@@ -209,9 +234,16 @@ export class AudioEngine {
     });
     this.sonic = sonic;
 
-    await sonic.init();
+    const detachLoading = sonic.on?.("loading:complete", (data) => {
+      if (data.type === "wasm" && this.initAttempt === attempt) resourcesReady();
+    });
+    try {
+      await sonic.init();
+    } finally {
+      detachLoading?.();
+    }
 
-    if (this.sonic !== sonic) {
+    if (this.sonic !== sonic || this.initAttempt !== attempt) {
       /*
        * Watchdog timeout already fired and detached this instance
        * while we were awaiting `sonic.init()`. The initWithWatchdog
@@ -250,10 +282,10 @@ export class AudioEngine {
   }
 
   /**
-   * Get the underlying AudioContext (if initialized).
+   * Get the AudioContext, including the gesture-unlocked initialization context.
    */
   get audioContext(): AudioContext | null {
-    return this.sonic?.audioContext || null;
+    return this.sonic?.audioContext || this.initializingContext;
   }
 
   /**

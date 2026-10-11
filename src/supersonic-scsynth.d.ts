@@ -48,6 +48,8 @@ declare module "supersonic-scsynth" {
     workerBaseURL?: string;
     /** Engine options passed to scsynth World_New(). */
     scsynthOptions?: ScsynthOptions;
+    /** Reuse a context unlocked synchronously by the host gesture. */
+    audioContext?: AudioContext;
     /** Options passed to `new AudioContext()`. */
     audioContextOptions?: AudioContextOptions;
   }
@@ -73,6 +75,10 @@ declare module "supersonic-scsynth" {
     get node(): SuperSonicNode | null;
     /** Available after init(); throws before. */
     get superClock(): SuperClock;
+    on(
+      event: "loading:complete",
+      listener: (data: { type: string; name: string; size: number }) => void
+    ): () => void;
     init(): Promise<void>;
     /**
      * Result shapes (LoadSynthDefResult / LoadSampleResult) are ignored
