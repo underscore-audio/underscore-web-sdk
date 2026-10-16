@@ -53,6 +53,8 @@ function harness() {
       notify();
     }),
     cancelCrossfade: vi.fn(),
+    fadeIn: vi.fn(),
+    fadeOut: vi.fn().mockResolvedValue(undefined),
     clearBuffers: vi.fn(),
     loadSynthdefFromData: vi.fn().mockResolvedValue(undefined),
     loadSampleFromData: vi.fn().mockResolvedValue(undefined),
@@ -124,6 +126,93 @@ describe("PlaybackCore", () => {
   });
   afterEach(() => {
     vi.useRealTimers();
+  });
+
+  it("fades before freeing an outgoing voice and opens output only after the next source is ready", async () => {
+    const h = harness();
+    await h.core.activate(synth("old"), { play: true });
+    expect(h.engine.fadeIn).toHaveBeenCalledOnce();
+    let finishFade!: () => void;
+    h.engine.fadeOut.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishFade = resolve;
+        })
+    );
+    const stops = h.engine.stop.mock.calls.length;
+    const stopped = h.core.stop();
+    expect(h.core.getSnapshot().playing).toBe(false);
+    expect(h.engine.stop).toHaveBeenCalledTimes(stops);
+    const next = h.core.activate(synth("next"), { play: true });
+    expect(h.engine.fadeIn).toHaveBeenCalledTimes(1);
+    finishFade();
+    await Promise.all([stopped, next]);
+    expect(h.engine.stop.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      h.engine.play.mock.invocationCallOrder.at(-1)!
+    );
+    expect(h.engine.setParams.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      h.engine.fadeIn.mock.invocationCallOrder.at(-1)!
+    );
+    expect(h.core.getSnapshot()).toMatchObject({ identity: "next", playing: true });
+    await h.core.stop();
+  });
+
+  it("keeps program effects alive through the fade without reviving stopped progress", async () => {
+    const h = harness();
+    await h.core.activate(
+      prepareProgram({
+        identity: "program",
+        name: "piece",
+        manifest,
+        synthdefs: new Map([["pad", new ArrayBuffer(4)]]),
+      }),
+      { play: true }
+    );
+    let finishFade!: () => void;
+    h.engine.fadeOut.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishFade = resolve;
+        })
+    );
+    h.sends.length = 0;
+    const stopped = h.core.stop();
+    h.setClock(101);
+    vi.advanceTimersByTime(100);
+    expect(h.core.getSnapshot().playing).toBe(false);
+    expect(h.sends.some((packet) => packet[0] === "/g_deepFree")).toBe(false);
+    finishFade();
+    await stopped;
+    expect(h.sends).toContainEqual(["/g_deepFree", 20]);
+  });
+
+  it("commits program teardown before a later scheduler purge can discard its frees", async () => {
+    const h = harness();
+    let pendingFree = false;
+    let programAudible = true;
+    h.sonic.send.mockImplementation((...packet: unknown[]) => {
+      if (packet[0] === "/g_deepFree") pendingFree = true;
+      h.sends.push(packet);
+    });
+    h.sonic.purge.mockImplementation(async () => {
+      pendingFree = false;
+    });
+    h.sonic.sync.mockImplementation(async () => {
+      if (pendingFree) programAudible = false;
+    });
+    await h.core.activate(
+      prepareProgram({
+        identity: "program",
+        name: "piece",
+        manifest,
+        synthdefs: new Map([["pad", new ArrayBuffer(4)]]),
+      }),
+      { play: true }
+    );
+    await h.core.activate(synth("next"), { play: true });
+    expect(programAudible).toBe(false);
+    expect(h.core.getSnapshot()).toMatchObject({ identity: "next", playing: true });
+    await h.core.stop();
   });
 
   it("resumes a suspended playing context without rebuilding the graph or changing held values", async () => {
@@ -494,8 +583,7 @@ describe("PlaybackCore", () => {
         })
     );
     const first = h.core.activate(synth(), { play: true });
-    for (let count = 0; count < 10 && !release; count++) await Promise.resolve();
-    expect(release).toBeDefined();
+    await vi.waitFor(() => expect(release).toBeDefined());
     const second = h.core.activate(synth("two"), { play: true });
     release?.();
     await Promise.all([first, second]);
@@ -516,7 +604,7 @@ describe("PlaybackCore", () => {
         })
     );
     const first = h.core.activate(synth(), { play: true });
-    for (let count = 0; count < 10 && !release; count++) await Promise.resolve();
+    await vi.waitFor(() => expect(release).toBeDefined());
     const stopped = h.core.stop();
     release?.();
     await Promise.all([first, stopped]);
@@ -649,8 +737,7 @@ describe("PlaybackCore", () => {
         })
     );
     const stale = h.core.activate(program("one"), { play: true });
-    for (let count = 0; count < 12 && !release; count++) await Promise.resolve();
-    expect(release).toBeDefined();
+    await vi.waitFor(() => expect(release).toBeDefined());
     const current = h.core.activate(program("two"), { play: true });
     release?.();
     await Promise.all([stale, current]);
@@ -676,6 +763,9 @@ describe("PlaybackCore", () => {
     expect(h.sends.filter((packet) => packet[0] === "/g_new")).toHaveLength(groups);
     expect(h.engine.loadSynthdefFromData).toHaveBeenCalledTimes(uploads);
     expect(h.core.getSnapshot()).toMatchObject({ playing: true, positionSec: 1 });
+    h.setClock(100.62);
+    vi.advanceTimersByTime(100);
+    expect(h.core.getSnapshot().positionSec).toBeCloseTo(1.5);
     let release: (() => void) | undefined;
     h.sonic.purge.mockImplementationOnce(
       () =>

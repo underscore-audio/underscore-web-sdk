@@ -15,7 +15,7 @@
  * that legitimately never import the real engine module.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const shutdownSpy = vi.fn(async () => {});
 
@@ -35,24 +35,31 @@ import { AudioEngine } from "./audio.js";
 import { AudioError } from "./errors.js";
 
 describe("AudioEngine.init() watchdog", () => {
-  /*
-   * Real timers + a small initTimeoutMs keep the test honest -- it
-   * exercises the same setTimeout / Promise.race the production path
-   * uses, just with a 25 ms ceiling instead of 10 s. Fake timers would
-   * skip the actual race and miss any regression in the cleanup path.
-   */
+  // Let the mocked module load before expiring the watchdog. Otherwise
+  // worker scheduling can time out resource delivery before an instance
+  // exists, which does not exercise partial-engine cleanup.
   const TEST_TIMEOUT_MS = 25;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     shutdownSpy.mockClear();
   });
+
+  afterEach(() => vi.useRealTimers());
+
+  async function expectTimeout(pending: Promise<void>): Promise<void> {
+    const rejected = expect(pending).rejects.toBeInstanceOf(AudioError);
+    await vi.dynamicImportSettled();
+    await vi.advanceTimersByTimeAsync(TEST_TIMEOUT_MS);
+    await rejected;
+  }
 
   it("rejects with an AudioError after the watchdog expires", async () => {
     const engine = new AudioEngine({
       wasmBaseUrl: "/supersonic/",
       initTimeoutMs: TEST_TIMEOUT_MS,
     });
-    await expect(engine.init()).rejects.toBeInstanceOf(AudioError);
+    await expectTimeout(engine.init());
   });
 
   it("includes a user-gesture hint in the rejection message", async () => {
@@ -60,9 +67,12 @@ describe("AudioEngine.init() watchdog", () => {
       wasmBaseUrl: "/supersonic/",
       initTimeoutMs: TEST_TIMEOUT_MS,
     });
-    await expect(engine.init()).rejects.toMatchObject({
+    const pending = engine.init();
+    const message = expect(pending).rejects.toMatchObject({
       message: expect.stringContaining("user gesture"),
     });
+    await expectTimeout(pending);
+    await message;
   });
 
   it("releases the partial supersonic instance on timeout", async () => {
@@ -70,7 +80,7 @@ describe("AudioEngine.init() watchdog", () => {
       wasmBaseUrl: "/supersonic/",
       initTimeoutMs: TEST_TIMEOUT_MS,
     });
-    await expect(engine.init()).rejects.toBeInstanceOf(AudioError);
+    await expectTimeout(engine.init());
     expect(shutdownSpy).toHaveBeenCalledTimes(1);
     expect(engine.isInitialized()).toBe(false);
   });
@@ -82,7 +92,7 @@ describe("AudioEngine.init() watchdog", () => {
     });
 
     const first = engine.init();
-    await expect(first).rejects.toBeInstanceOf(AudioError);
+    await expectTimeout(first);
 
     /*
      * Without the clear, retrying would return the already-rejected
@@ -92,7 +102,7 @@ describe("AudioEngine.init() watchdog", () => {
      */
     const second = engine.init();
     expect(second).not.toBe(first);
-    await expect(second).rejects.toBeInstanceOf(AudioError);
+    await expectTimeout(second);
     expect(shutdownSpy).toHaveBeenCalledTimes(2);
   });
 });

@@ -65,6 +65,7 @@ export class AudioEngine {
   private outgoingNodeId: number | null = null;
   private log: Logger;
   private masterGain: GainNode | null = null;
+  private playbackGain: GainNode | null = null;
   private masterVolume: number = MASTER_VOLUME_DEFAULT;
 
   constructor(config: AudioEngineConfig) {
@@ -153,19 +154,23 @@ export class AudioEngine {
         ]),
         deadline.timeoutPromise,
       ]);
+      this.initialized = true;
+      this.notify();
     } catch (err) {
       this.initAttempt = null;
       const sonic = this.sonic;
       this.sonic = null;
       this.initialized = false;
+      // A stalled browser audio thread can also stall shutdown/close. Detach
+      // this attempt immediately so cleanup cannot block failure or a retry.
       try {
-        await sonic?.shutdown();
+        void sonic?.shutdown().catch(() => {});
       } catch {
         // Close our context even if a partially initialized engine cannot shut down.
       }
       if (context && context.state !== "closed") {
         try {
-          await context.close();
+          void context.close().catch(() => {});
         } catch {
           // A browser may have already released the failed context.
         }
@@ -264,14 +269,18 @@ export class AudioEngine {
 
     this.masterGain = spliceMasterGain(sonic, this.masterVolume);
     const ctx = sonic.audioContext;
+    if (ctx && this.masterGain && sonic.node) {
+      this.playbackGain = ctx.createGain();
+      sonic.node.disconnect(this.masterGain);
+      sonic.node.connect(this.playbackGain);
+      this.playbackGain.connect(this.masterGain);
+    }
     if (ctx && this.masterGain && typeof ctx.createAnalyser === "function") {
       this.analyser = ctx.createAnalyser();
       this.analyser.fftSize = 512;
       this.analyser.smoothingTimeConstant = 0.6;
       this.masterGain.connect(this.analyser);
     }
-    this.initialized = true;
-    this.notify();
   }
 
   /**
@@ -320,6 +329,34 @@ export class AudioEngine {
 
   get analyserNode(): AnalyserNode | null {
     return this.analyser;
+  }
+
+  /** @internal A transport envelope, independent of volume and synth parameters. */
+  fadeIn(): void {
+    const node = this.playbackGain;
+    if (!node) return;
+    const now = node.context.currentTime;
+    const level = node.gain.value;
+    node.gain.cancelScheduledValues(now);
+    node.gain.setValueAtTime(level, now);
+    node.gain.linearRampToValueAtTime(1, now + 0.02);
+  }
+
+  /** @internal Keep the graph alive until its output has reached silence. */
+  async fadeOut(): Promise<void> {
+    const node = this.playbackGain;
+    if (!node) return;
+    const now = node.context.currentTime;
+    const level = node.gain.value;
+    node.gain.cancelScheduledValues(now);
+    if (node.context.state !== "running" || level === 0) {
+      node.gain.setValueAtTime(0, now);
+      return;
+    }
+    node.gain.setValueAtTime(level, now);
+    node.gain.linearRampToValueAtTime(0, now + 0.02);
+    // One extra render quantum lets the fade finish before OSC graph teardown.
+    await this.sleep(25);
   }
 
   cacheParams(params: Record<string, number>): void {

@@ -46,7 +46,7 @@ afterEach(() => {
   boot.ready = null;
   boot.resourcesReady = null;
   boot.context = null;
-  boot.shutdown.mockClear();
+  boot.shutdown.mockReset().mockResolvedValue(undefined);
 });
 
 function start(): { engine: AudioEngine; pending: Promise<void> } {
@@ -61,6 +61,32 @@ async function bootStarted(): Promise<void> {
 }
 
 describe("audio initialization phases", () => {
+  it("does not report initialized until context resume and engine boot both finish", async () => {
+    vi.useFakeTimers();
+    let finishResume: (() => void) | undefined;
+    class DelayedContext extends GestureContext {
+      resume = vi.fn(
+        () =>
+          new Promise<void>((resolve) => {
+            finishResume = () => {
+              this.state = "running";
+              resolve();
+            };
+          })
+      );
+    }
+    vi.stubGlobal("AudioContext", DelayedContext);
+    const engine = new AudioEngine({ wasmBaseUrl: "/audio/" });
+    const pending = engine.init();
+    await bootStarted();
+    boot.ready?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(engine.isInitialized()).toBe(false);
+    finishResume?.();
+    await pending;
+    expect(engine.isInitialized()).toBe(true);
+  });
+
   it("unlocks the context synchronously and allows resource delivery beyond the boot deadline", async () => {
     const { engine, pending } = start();
     const context = engine.audioContext;
@@ -107,5 +133,51 @@ describe("audio initialization phases", () => {
     expect(engine.isInitialized()).toBe(false);
     expect(engine.audioContext).toBeNull();
     expect(boot.shutdown).toHaveBeenCalledTimes(2);
+  });
+
+  it("rejects on time and permits a fresh boot even when failed-engine cleanup stalls", async () => {
+    boot.shutdown.mockImplementation(() => new Promise(() => {}));
+    const { engine, pending } = start();
+    const context = engine.audioContext;
+    let failure: unknown;
+    const observed = pending.catch((error: unknown) => {
+      failure = error;
+    });
+    await bootStarted();
+    boot.resourcesReady?.();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(context?.close).toHaveBeenCalledOnce();
+    expect(engine.audioContext).toBeNull();
+    await observed;
+
+    const finishOldBoot = boot.ready;
+    boot.ready = null;
+    const retry = engine.init();
+    await bootStarted();
+    boot.ready?.();
+    await retry;
+    expect(engine.isInitialized()).toBe(true);
+    expect(engine.audioContext).not.toBe(context);
+    finishOldBoot?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(engine.isInitialized()).toBe(true);
+    expect(engine.audioContext?.state).toBe("running");
+  });
+
+  it("rejects on time even when closing the failed audio context never settles", async () => {
+    const { engine, pending } = start();
+    vi.mocked(engine.audioContext!.close).mockImplementation(() => new Promise(() => {}));
+    let failure: unknown;
+    const observed = pending.catch((error: unknown) => {
+      failure = error;
+    });
+    await bootStarted();
+    boot.resourcesReady?.();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(failure).toBeInstanceOf(Error);
+    expect(engine.audioContext).toBeNull();
+    await observed;
   });
 });

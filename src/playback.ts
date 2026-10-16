@@ -272,12 +272,17 @@ export class PlaybackCore {
   private async silence(): Promise<void> {
     this.score.cancel();
     this.clearTicker();
-    if (this.program) await this.program.stop();
+    await this.audio.fadeOut();
+    this.audio.cancelCrossfade();
+    const program = this.program;
+    const engine = this.audio.isInitialized() ? this.audio.engine : null;
+    if (program) await program.stop();
+    else if (engine) await engine.purge();
     this.programUnsubscribe?.();
     this.programUnsubscribe = null;
     this.program = null;
-    if (this.audio.isInitialized() && this.audio.engine) await this.audio.engine.purge();
     this.audio.stop();
+    if (engine && !program) await engine.sync();
   }
   private scoreValues(artifact: PreparedSynth, seconds: number): Record<string, number> {
     const initial = defaults(artifact);
@@ -295,7 +300,6 @@ export class PlaybackCore {
     this.rememberManual();
     const token = ++this.generation;
     this.activating = { identity: artifact.identity, token };
-    this.audio.cancelCrossfade();
     this.score.cancel();
     this.clearTicker();
     return this.enqueue(async () => {
@@ -331,6 +335,8 @@ export class PlaybackCore {
   private async start(artifact: PreparedArtifact, seconds: number, token: number): Promise<void> {
     await this.audio.init();
     if (token !== this.generation) return;
+    await this.audio.fadeOut();
+    if (token !== this.generation) return;
     const position = Math.max(0, Math.min(seconds, duration(artifact) || seconds));
     if (artifact.kind === "program") {
       const program = new Program(
@@ -356,6 +362,7 @@ export class PlaybackCore {
         return;
       }
       this.loadedIdentity = null;
+      this.audio.fadeIn();
       return;
     }
     if (this.loadedIdentity !== artifact.identity) {
@@ -380,6 +387,10 @@ export class PlaybackCore {
       ? { ...this.snapshot.params }
       : this.scoreValues(artifact, position);
     this.audio.setParams(params);
+    // Reveal the configured voice, not its default-parameter attack or a hard waveform edge.
+    await this.audio.engine?.sync();
+    if (token !== this.generation) return;
+    this.audio.fadeIn();
     this.update({
       playing: true,
       positionSec: position,
@@ -409,11 +420,10 @@ export class PlaybackCore {
         if (this.active !== artifact) return;
         this.clearTicker();
         this.update({
-          playing: false,
           positionSec: duration(artifact),
           params: Object.freeze(this.scoreValues(artifact, duration(artifact))),
         });
-        this.audio.stop();
+        void this.stop(artifact.identity).catch(() => {});
       },
     });
     this.clearTicker();
@@ -458,9 +468,9 @@ export class PlaybackCore {
       : this.score.positionSec || this.snapshot.positionSec;
     this.score.cancel();
     this.clearTicker();
-    this.audio.cancelCrossfade();
-    this.audio.stop();
-    this.programTransport.interrupt();
+    const faded = this.audio.fadeOut();
+    this.programUnsubscribe?.();
+    this.programUnsubscribe = null;
     this.update({
       playing: false,
       positionSec: position,
@@ -470,7 +480,10 @@ export class PlaybackCore {
           : { ...this.snapshot.params }
       ),
     });
-    return this.enqueue(() => this.silence());
+    return this.enqueue(async () => {
+      await faded;
+      await this.silence();
+    });
   }
   seek(seconds: number): Promise<void> {
     if (!Number.isFinite(seconds))
@@ -718,7 +731,7 @@ export class PlaybackCore {
       if (token !== this.generation) return;
       await this.audio.init();
       if (token !== this.generation) return;
-      if (this.program) await this.program.stop();
+      if (this.program) await this.silence();
       for (const sample of artifact.samples)
         await this.audio.loadSampleFromData(sample.bufferNum, sample.data);
       this.programTransport.invalidateDefinitions();
@@ -735,6 +748,7 @@ export class PlaybackCore {
         positionSec: 0,
         error: null,
       });
+      this.audio.fadeIn();
       await this.audio.crossfadeTo(artifact.name, seconds, defaults(artifact).amp ?? 0.3);
       if (token !== this.generation) {
         this.audio.stop();

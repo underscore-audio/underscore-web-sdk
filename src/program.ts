@@ -389,6 +389,8 @@ export class ProgramTransport {
     sonic.send("/g_deepFree", FX_GROUP_ID);
     sonic.send("/n_free", SRC_GROUP_ID, FX_GROUP_ID);
     this.started = false;
+    // A later purge must not discard these frees while they are still queued.
+    await sonic.sync();
   }
 
   /**

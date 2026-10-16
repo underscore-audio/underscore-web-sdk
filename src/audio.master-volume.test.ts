@@ -14,16 +14,20 @@
  * pre-init paths exercised in `audio.test.ts`.
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const setTargetAtTimeSpy = vi.fn();
+const gains: FakeGainNode[] = [];
 
 class FakeGainNode {
   gain = {
     value: 1,
     setTargetAtTime: setTargetAtTimeSpy,
+    cancelScheduledValues: vi.fn(),
+    setValueAtTime: vi.fn(),
+    linearRampToValueAtTime: vi.fn(),
   };
-  context = { currentTime: 0 };
+  context = { currentTime: 2, state: "running" };
   connect = vi.fn();
   disconnect = vi.fn();
 }
@@ -31,7 +35,11 @@ class FakeGainNode {
 class FakeAudioContext {
   destination = {} as AudioNode;
   state: AudioContextState = "running";
-  createGain = (): FakeGainNode => new FakeGainNode();
+  createGain = (): FakeGainNode => {
+    const node = new FakeGainNode();
+    gains.push(node);
+    return node;
+  };
 }
 
 class FakeEngineNode {
@@ -55,6 +63,44 @@ import { AudioEngine } from "./audio.js";
 describe("AudioEngine.setMasterVolume smoothing", () => {
   beforeEach(() => {
     setTargetAtTimeSpy.mockClear();
+    gains.length = 0;
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("fades the playback bus to exact silence before teardown, without changing master volume", async () => {
+    vi.useFakeTimers();
+    const engine = new AudioEngine({ wasmBaseUrl: "/supersonic/" });
+    await engine.init();
+    engine.setMasterVolume(0.7);
+    const gate = gains[1];
+    gate.gain.value = 0.6;
+    let finished = false;
+    const fading = engine.fadeOut().then(() => {
+      finished = true;
+    });
+    expect(gate.gain.setValueAtTime).toHaveBeenLastCalledWith(0.6, 2);
+    expect(gate.gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(0, 2.02);
+    await vi.advanceTimersByTimeAsync(19);
+    expect(finished).toBe(false);
+    await vi.advanceTimersByTimeAsync(6);
+    await fading;
+    expect(finished).toBe(true);
+    engine.fadeIn();
+    expect(gate.gain.cancelScheduledValues).toHaveBeenLastCalledWith(2);
+    expect(gate.gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(1, 2.02);
+    expect(engine.getMasterVolume()).toBe(0.7);
+  });
+
+  it("silences a suspended context without waiting for its frozen audio clock", async () => {
+    vi.useFakeTimers();
+    const engine = new AudioEngine({ wasmBaseUrl: "/supersonic/" });
+    await engine.init();
+    const gate = gains[1];
+    gate.context.state = "suspended";
+    await engine.fadeOut();
+    expect(gate.gain.setValueAtTime).toHaveBeenLastCalledWith(0, 2);
+    expect(gate.gain.linearRampToValueAtTime).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("schedules a setTargetAtTime ramp instead of a hard gain assignment after init", async () => {
