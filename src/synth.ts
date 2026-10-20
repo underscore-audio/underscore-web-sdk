@@ -23,6 +23,17 @@ function defaultParamValues(params: ParamMetadata[]): Record<string, number> {
   return out;
 }
 
+export interface SynthPlaybackDriver {
+  play(): Promise<void>;
+  stop(): void;
+  setParams(params: Record<string, number>): void;
+  getAllParams(): Record<string, number>;
+  isPlaying(): boolean;
+  subscribe(listener: SynthStateListener): () => void;
+  crossfadeIn(durationSec: number): Promise<void>;
+  isCrossfading(): boolean;
+}
+
 export class Synth {
   private engine: AudioEngine;
   private _compositionId: string;
@@ -47,7 +58,8 @@ export class Synth {
     description: string,
     params: ParamMetadata[],
     samples?: SampleMetadata[],
-    score?: SynthScore
+    score?: SynthScore,
+    private driver?: SynthPlaybackDriver
   ) {
     this.engine = engine;
     this._compositionId = compositionId;
@@ -109,7 +121,7 @@ export class Synth {
   }
 
   /**
-   * Whether the synthdef has been loaded into the engine.
+   * Whether resources have been prepared for playback. Activation uploads them to the engine.
    */
   get loaded(): boolean {
     return this._loaded;
@@ -135,6 +147,7 @@ export class Synth {
       throw new SynthError("Synth not loaded. Call Underscore.loadSynth() first.");
     }
 
+    if (this.driver) return this.driver.play();
     this.scheduler.cancel();
     await this.engine.play(this._synthName);
 
@@ -151,6 +164,7 @@ export class Synth {
    * Stop the synth and cancel any in-flight score events.
    */
   stop(): void {
+    if (this.driver) return this.driver.stop();
     this.scheduler.cancel();
     this.engine.stop();
   }
@@ -166,7 +180,8 @@ export class Synth {
     }
 
     const clampedValue = Math.max(param.min, Math.min(param.max, value));
-    this.engine.setParam(name, clampedValue);
+    if (this.driver) this.driver.setParams({ [name]: clampedValue });
+    else this.engine.setParam(name, clampedValue);
   }
 
   /**
@@ -186,7 +201,8 @@ export class Synth {
     }
 
     if (Object.keys(validParams).length > 0) {
-      this.engine.setParams(validParams);
+      if (this.driver) this.driver.setParams(validParams);
+      else this.engine.setParams(validParams);
     }
   }
 
@@ -194,14 +210,14 @@ export class Synth {
    * Get the current value of a parameter.
    */
   getParam(name: string): number | undefined {
-    return this.engine.getParam(name);
+    return this.driver ? this.driver.getAllParams()[name] : this.engine.getParam(name);
   }
 
   /**
    * Get all current parameter values.
    */
   getAllParams(): Record<string, number> {
-    return this.engine.getAllParams();
+    return this.driver ? this.driver.getAllParams() : this.engine.getAllParams();
   }
 
   /**
@@ -215,7 +231,7 @@ export class Synth {
    * Check if the synth is currently playing.
    */
   isPlaying(): boolean {
-    return this.engine.isPlaying();
+    return this.driver ? this.driver.isPlaying() : this.engine.isPlaying();
   }
 
   /**
@@ -223,7 +239,7 @@ export class Synth {
    * Returns an unsubscribe function.
    */
   subscribe(listener: SynthStateListener): () => void {
-    return this.engine.subscribe(listener);
+    return this.driver ? this.driver.subscribe(listener) : this.engine.subscribe(listener);
   }
 
   /**
@@ -237,6 +253,7 @@ export class Synth {
       throw new SynthError("Synth not loaded. Call Underscore.loadSynth() first.");
     }
 
+    if (this.driver) return this.driver.crossfadeIn(durationSec);
     const ampParam = this._params.find((p) => p.name === "amp");
     const targetAmp = ampParam?.default ?? 0.3;
 
@@ -247,6 +264,6 @@ export class Synth {
    * Check if a crossfade is currently in progress.
    */
   isCrossfading(): boolean {
-    return this.engine.isCrossfading();
+    return this.driver ? this.driver.isCrossfading() : this.engine.isCrossfading();
   }
 }

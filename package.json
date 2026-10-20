@@ -9,6 +9,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./playback": {
+      "types": "./dist/playback.d.ts",
+      "import": "./dist/playback.js"
     }
   },
   "bin": {

@@ -52,6 +52,7 @@ function makeHarness(startClock = 100) {
     loadSynthdefFromData: vi.fn().mockResolvedValue(undefined),
     freeSynthDefs: vi.fn(),
     stop: vi.fn(),
+    resume: vi.fn().mockResolvedValue(undefined),
   } as unknown as AudioEngine;
 
   return {
