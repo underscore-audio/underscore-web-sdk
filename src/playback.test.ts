@@ -77,6 +77,7 @@ function harness() {
     engine,
     sonic,
     sends,
+    notify,
     setClock: (value: number) => {
       now = value;
     },
@@ -128,6 +129,154 @@ describe("PlaybackCore", () => {
     vi.useRealTimers();
   });
 
+  it("freezes the existing synth, clears scheduled automation and resumes its score from the cue", async () => {
+    const h = harness();
+    await h.core.activate(synth(), { play: true });
+    h.setClock(101.05);
+    h.sonic.purge.mockClear();
+    await h.core.pause();
+    const paused = h.core.getSnapshot();
+    expect(paused.positionSec).toBeCloseTo(1);
+    expect(paused.playing).toBe(false);
+    expect(h.sonic.purge).toHaveBeenCalledOnce();
+    expect(h.sends).toContainEqual(["/n_run", 1000, 0]);
+    const bundles = h.sonic.sendOSC.mock.calls.length;
+    h.setClock(150);
+    vi.advanceTimersByTime(1000);
+    expect(h.sonic.sendOSC).toHaveBeenCalledTimes(bundles);
+    expect(h.core.getSnapshot()).toBe(paused);
+    await h.core.play();
+    expect(h.sends).toContainEqual(["/n_run", 1000, 1]);
+    expect(h.engine.play).toHaveBeenCalledOnce();
+    expect(h.engine.setParams).toHaveBeenLastCalledWith(paused.params);
+    h.setClock(150.55);
+    vi.advanceTimersByTime(100);
+    expect(h.core.getSnapshot().positionSec).toBeCloseTo(1.5);
+    await h.core.stop();
+  });
+
+  it("keeps a parked synth silent through held edits and a cancelled resume", async () => {
+    const h = harness();
+    await h.core.activate(synth(), { play: true });
+    await h.core.pause();
+    await h.core.setParam("cutoff", 800);
+    h.notify();
+    expect(h.core.getSnapshot()).toMatchObject({ playing: false, params: { cutoff: 800 } });
+    let release!: () => void;
+    h.engine.resume.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        })
+    );
+    const play = h.core.play();
+    await vi.waitFor(() => expect(release).toBeDefined());
+    const pause = h.core.pause();
+    release();
+    await Promise.all([play, pause]);
+    expect(h.sends).not.toContainEqual(["/n_run", 1000, 1]);
+    await h.core.play();
+    expect(h.core.getSnapshot()).toMatchObject({ playing: true, params: { cutoff: 800 } });
+    expect(h.engine.play).toHaveBeenCalledOnce();
+    await h.core.stop();
+  });
+
+  it("commits the resumed node before a queued knob edit purges future OSC", async () => {
+    const h = harness();
+    await h.core.activate(synth(), { play: true });
+    await h.core.pause();
+    let resumePending = false;
+    let running = false;
+    h.sonic.send.mockImplementation((...packet) => {
+      if (packet[0] === "/n_run" && packet[2] === 1) resumePending = true;
+      h.sends.push(packet);
+    });
+    h.sonic.sync.mockImplementation(async () => {
+      if (resumePending) running = true;
+    });
+    h.sonic.purge.mockImplementation(async () => {
+      resumePending = false;
+    });
+    await Promise.all([h.core.play(), h.core.setParam("amp", 0.2)]);
+    expect(running).toBe(true);
+    expect(h.core.getSnapshot()).toMatchObject({ playing: true, params: { amp: 0.2 } });
+    await h.core.stop();
+  });
+
+  it("releases a voice that could not be paused before retrying", async () => {
+    const h = harness();
+    await h.core.activate(synth(), { play: true });
+    h.sonic.purge.mockRejectedValueOnce(new Error("Scheduler unavailable"));
+    await expect(h.core.pause()).rejects.toThrow("Scheduler unavailable");
+    expect(h.engine.playingNodeId).toBeNull();
+    expect(h.core.getSnapshot().playing).toBe(false);
+    await h.core.play();
+    expect(h.engine.play).toHaveBeenCalledTimes(2);
+    await h.core.stop();
+  });
+
+  it("keeps the cue silent and playable after the engine cannot confirm a resume", async () => {
+    const h = harness();
+    await h.core.activate(synth(), { play: true });
+    h.setClock(101.05);
+    await h.core.pause();
+    const cue = h.core.getSnapshot().positionSec;
+    h.engine.fadeIn.mockClear();
+    h.sonic.sync.mockRejectedValueOnce(new Error("Resume timed out"));
+    await expect(h.core.play()).rejects.toThrow("Resume timed out");
+    expect(h.engine.fadeIn).not.toHaveBeenCalled();
+    expect(h.engine.playingNodeId).toBeNull();
+    expect(h.core.getSnapshot()).toMatchObject({ playing: false, positionSec: cue });
+    await h.core.play();
+    expect(h.engine.play).toHaveBeenCalledTimes(2);
+    expect(h.core.getSnapshot()).toMatchObject({ playing: true, positionSec: cue, error: null });
+    await h.core.stop();
+  });
+
+  it("stays paused when Pause arrives while the engine is confirming a resume", async () => {
+    const h = harness();
+    await h.core.activate(synth(), { play: true });
+    await h.core.pause();
+    h.engine.fadeIn.mockClear();
+    let confirm!: () => void;
+    h.sonic.sync.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          confirm = resolve;
+        })
+    );
+    const play = h.core.play();
+    await vi.waitFor(() => expect(confirm).toBeDefined());
+    const pause = h.core.pause();
+    confirm();
+    await Promise.all([play, pause]);
+    expect(h.engine.fadeIn).not.toHaveBeenCalled();
+    expect(h.core.getSnapshot().playing).toBe(false);
+    await h.core.play();
+    expect(h.core.getSnapshot().playing).toBe(true);
+    await h.core.stop();
+  });
+
+  it.each(["seek", "stop", "switch", "reset"] as const)(
+    "releases the paused voice on %s",
+    async (operation) => {
+      const h = harness();
+      await h.core.activate(synth(), { play: true });
+      await h.core.pause();
+      h.engine.stop.mockClear();
+      if (operation === "reset") await h.core.reset();
+      if (operation === "stop") await h.core.stop();
+      if (operation === "switch") await h.core.activate(synth("two"), { play: true });
+      if (operation === "seek") await Promise.all([h.core.seek(2), h.core.play()]);
+      expect(h.engine.stop).toHaveBeenCalled();
+      expect(h.sends).not.toContainEqual(["/n_run", 1000, 1]);
+      if (operation === "seek") {
+        expect(h.core.getSnapshot()).toMatchObject({ positionSec: 2, playing: true });
+        expect(h.engine.play).toHaveBeenCalledTimes(2);
+      }
+    }
+  );
+
   it("fades before freeing an outgoing voice and opens output only after the next source is ready", async () => {
     const h = harness();
     await h.core.activate(synth("old"), { play: true });
@@ -176,7 +325,7 @@ describe("PlaybackCore", () => {
         })
     );
     h.sends.length = 0;
-    const stopped = h.core.stop();
+    const stopped = h.core.pause();
     h.setClock(101);
     vi.advanceTimersByTime(100);
     expect(h.core.getSnapshot().playing).toBe(false);
@@ -572,6 +721,34 @@ describe("PlaybackCore", () => {
     expect(h.core.getSnapshot().positionSec).toBeCloseTo(0.5);
     await h.core.stop();
   });
+
+  it.each(["activate", "crossfade"] as const)(
+    "restores resident bytes after a superseded %s",
+    async (mode) => {
+      const h = harness();
+      const first = synth();
+      const second = { ...synth("two"), name: first.name, synthdef: new ArrayBuffer(8) };
+      await h.core.activate(first, { play: true });
+      let release: (() => void) | undefined;
+      h.engine.loadSynthdefFromData.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            release = resolve;
+          })
+      );
+      const interrupted =
+        mode === "activate" ? h.core.activate(second, { play: true }) : h.core.crossfade(second);
+      await vi.waitFor(() => expect(release).toBeDefined());
+      const restored = h.core.activate(first, { play: true });
+      release?.();
+      await Promise.all([interrupted, restored]);
+      expect(h.engine.loadSynthdefFromData.mock.calls.map(([data]) => data.byteLength)).toEqual([
+        4, 8, 4,
+      ]);
+      expect(h.core.getSnapshot()).toMatchObject({ identity: first.identity, playing: true });
+      await h.core.stop();
+    }
+  );
 
   it("a superseded upload cannot start its source or clear the next source", async () => {
     const h = harness();

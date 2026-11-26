@@ -21,6 +21,8 @@ import { INIT_TIMEOUT_MS, RESOURCE_TIMEOUT_MS, createInitTimeout } from "./audio
 export interface AudioEngineConfig {
   wasmBaseUrl: string;
   workerBaseUrl?: string;
+  /** Shared-memory transport requires a cross-origin isolated host. */
+  transportMode?: "postMessage" | "sab";
   logger?: Logger;
   /**
    * Override the engine init watchdog (milliseconds).
@@ -223,6 +225,7 @@ export class AudioEngine {
      * engine defaults would silently reroute captured buses.
      */
     const sonic = new SuperSonic({
+      mode: this.config.transportMode,
       coreBaseURL: this.config.wasmBaseUrl,
       workerBaseURL: workerBaseUrl,
       scsynthOptions: {

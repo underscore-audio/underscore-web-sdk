@@ -42,6 +42,7 @@ declare module "supersonic-scsynth" {
   }
 
   export interface SuperSonicOptions {
+    mode?: "postMessage" | "sab";
     /** Base URL for GPL assets: WASM + AudioWorklet (supersonic-scsynth-core). */
     coreBaseURL?: string;
     /** Base URL for MIT worker scripts. */

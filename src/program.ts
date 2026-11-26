@@ -51,6 +51,26 @@ export interface ProgramProgress {
 
 export type ProgramProgressListener = (progress: ProgramProgress) => void;
 
+export function programProgressAt(
+  manifest: ProgramManifest,
+  beat: number,
+  playing: boolean
+): ProgramProgress {
+  const secPerBeat = 60 / manifest.bpm;
+  const index = sectionIndexAtBeat(manifest.sections, beat);
+  return {
+    state: playing ? "playing" : "idle",
+    beat,
+    durationBeats: manifest.durationBeats,
+    elapsedSec: beat * secPerBeat,
+    durationSec: manifest.durationBeats * secPerBeat,
+    progress: manifest.durationBeats > 0 ? Math.min(1, beat / manifest.durationBeats) : 0,
+    sectionName: index >= 0 ? manifest.sections[index].name : null,
+    sectionIndex: index,
+    sectionCount: manifest.sections.length,
+  };
+}
+
 export interface ProgramPlaybackDriver {
   play(): Promise<void>;
   seek(beat: number): Promise<void>;
@@ -59,15 +79,8 @@ export interface ProgramPlaybackDriver {
   subscribe(listener: ProgramProgressListener): () => void;
 }
 
-/*
- * START_DELAY_SEC is the lead-in between "press play" and the first audible
- * beat: enough for setup to be processed and for the first bundles to land
- * ahead of the audio thread. The re-anchor delay for a seek is shorter
- * because the graph already exists (no setup to process), so the jump lands
- * quickly while still scheduling the first bundle ahead of the audio thread.
- */
-const START_DELAY_SEC = 0.5;
-const SEEK_DELAY_SEC = 0.12;
+/** Headroom for the first timestamped bundle after immediate graph or stem commands. */
+const SCHEDULE_LEAD_SEC = 0.12;
 
 /** Fixed group node IDs the manifest's setup creates (capture-kit contract). */
 const SRC_GROUP_ID = 10;
@@ -153,6 +166,7 @@ export class ProgramTransport {
   /** Upload `program`'s defs into the engine if another program's are resident. */
   async ensureLoaded(program: Program): Promise<void> {
     if (this.loadedKey === program.key) return;
+    this.invalidateDefinitions();
 
     for (const def of program.manifest.synthdefs) {
       const bytes = program.synthdefData(def);
@@ -169,10 +183,7 @@ export class ProgramTransport {
      * owned that this one does not reuse. Freeing before load would
      * leave a window with no defs if setup raced ahead.
      */
-    const nextDefs = new Set(program.manifest.synthdefs);
-    const orphans = this.loadedDefNames.filter((name) => !nextDefs.has(name));
-    if (orphans.length > 0) this.engine.freeSynthDefs(orphans);
-    this.loadedDefNames = [...program.manifest.synthdefs];
+    this.replaceDefinitions(program.manifest.synthdefs);
     this.loadedKey = program.key;
   }
 
@@ -205,10 +216,8 @@ export class ProgramTransport {
     if (!isCurrent()) return;
 
     /*
-     * Setup runs immediately so groups and stem/FX synths exist well
-     * before the first timestamped event (START_DELAY_SEC later). Node
-     * IDs and bus numbers are baked into the manifest, so this
-     * reconstructs the exact graph the piece was captured against.
+     * Definitions are synced and the engine is running. Enqueue the captured
+     * groups and stems in order before handing it any timestamped notes.
      */
     for (const command of program.manifest.setup) {
       sonic.send(command.cmd, ...command.args);
@@ -228,7 +237,7 @@ export class ProgramTransport {
     this.active = program;
     this.started = true;
     this.state = "playing";
-    this.anchorAndPump(program, startBeat, START_DELAY_SEC);
+    this.anchorAndPump(program, startBeat);
   }
 
   /**
@@ -297,25 +306,24 @@ export class ProgramTransport {
     for (const packet of stemControlStateAtBeat(program.manifest, beat)) {
       sonic.send(...packet);
     }
-    this.anchorAndPump(program, beat, SEEK_DELAY_SEC);
+    this.anchorAndPump(program, beat);
   }
 
   /**
-   * Anchor the clock so `beat` sounds `delaySec` from now, then (re)start
-   * the pump from that beat. The single home for the delicate
-   * `t0 = now + delay - beat*secPerBeat` math shared by first-play,
-   * play-from-here, and seek; miscopying it detunes every onset.
+   * Build the schedule before anchoring the clock so preparing a dense
+   * score cannot spend the first note's scheduling headroom.
    */
-  private anchorAndPump(program: Program, beat: number, delaySec: number): void {
+  private anchorAndPump(program: Program, beat: number): void {
     const sonic = this.engine.engine!;
     const encoder = this.engine.oscEncoder!;
     const secPerBeat = 60 / program.manifest.bpm;
-    this.t0 = sonic.superClock.now() + delaySec - beat * secPerBeat;
+    const groups = this.pumpGroupsFrom(program, beat, secPerBeat);
+    this.t0 = sonic.superClock.now() + SCHEDULE_LEAD_SEC - beat * secPerBeat;
     this.pump.start({
       engine: sonic,
       encoder,
       t0: this.t0,
-      groups: this.pumpGroupsFrom(program, beat, secPerBeat),
+      groups,
     });
     if (this.tickTimer === null) {
       this.tickTimer = setInterval(this.tick, PROGRESS_TICK_MS);
@@ -422,22 +430,7 @@ export class ProgramTransport {
   }
 
   private snapshotFor(program: Program, beat: number): ProgramProgress {
-    const manifest = program.manifest;
-    const playing = this.state === "playing" && this.active === program;
-    const secPerBeat = 60 / manifest.bpm;
-    const sections: ProgramSection[] = manifest.sections;
-    const index = sectionIndexAtBeat(sections, beat);
-    return {
-      state: playing ? "playing" : "idle",
-      beat,
-      durationBeats: manifest.durationBeats,
-      elapsedSec: beat * secPerBeat,
-      durationSec: manifest.durationBeats * secPerBeat,
-      progress: manifest.durationBeats > 0 ? Math.min(1, beat / manifest.durationBeats) : 0,
-      sectionName: index >= 0 ? sections[index].name : null,
-      sectionIndex: index,
-      sectionCount: sections.length,
-    };
+    return programProgressAt(program.manifest, beat, this.isPlayingProgram(program));
   }
 
   private emitFor(program: Program, beat: number): void {

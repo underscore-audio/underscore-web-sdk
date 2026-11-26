@@ -1,7 +1,11 @@
 import { AudioEngine, type AudioEngineConfig } from "./audio.js";
-import { Program, ProgramTransport, type ProgramPlaybackDriver } from "./program.js";
+import {
+  Program,
+  ProgramTransport,
+  programProgressAt,
+  type ProgramPlaybackDriver,
+} from "./program.js";
 import { ScoreScheduler, lowerScore, scoreValuesAt } from "./score-scheduler.js";
-import { sectionIndexAtBeat } from "./program-manifest.js";
 import { ProgramManifestSchema } from "./schemas.js";
 import type { SynthPlaybackDriver } from "./synth.js";
 import { SynthError } from "./errors.js";
@@ -182,6 +186,7 @@ export class PlaybackCore {
   private readonly programTransport: ProgramTransport;
   private readonly score = new ScoreScheduler();
   private active: PreparedArtifact | null = null;
+  private parkedNode: number | null = null;
   private program: Program | null = null;
   private programUnsubscribe: (() => void) | null = null;
   private loadedIdentity: string | null = null;
@@ -214,7 +219,12 @@ export class PlaybackCore {
     this.programTransport = new ProgramTransport(this.audio);
     this.audio.onBeforePlayback = () => this.programTransport.interrupt();
     this.audio.subscribe((state) => {
-      if (this.snapshot.kind === "synth" && !this.snapshot.playing && state.playing)
+      if (
+        this.snapshot.kind === "synth" &&
+        !this.snapshot.playing &&
+        state.playing &&
+        this.parkedNode !== this.audio.playingNodeId
+      )
         this.update({ playing: true });
       if (this.snapshot.kind === "synth" && this.snapshot.playing && !state.playing) {
         this.score.cancel();
@@ -282,6 +292,7 @@ export class PlaybackCore {
     this.programUnsubscribe = null;
     this.program = null;
     this.audio.stop();
+    this.parkedNode = null;
     if (engine && !program) await engine.sync();
   }
   private scoreValues(artifact: PreparedSynth, seconds: number): Record<string, number> {
@@ -332,6 +343,22 @@ export class PlaybackCore {
     });
   }
 
+  private async loadSynth(artifact: PreparedSynth, token: number): Promise<void> {
+    if (this.loadedIdentity === artifact.identity) return;
+    // An interrupted upload can already have overwritten the resident buffers or definition.
+    this.loadedIdentity = null;
+    this.audio.clearBuffers();
+    for (const sample of artifact.samples) {
+      if (token !== this.generation) return;
+      await this.audio.loadSampleFromData(sample.bufferNum, sample.data);
+    }
+    if (token !== this.generation) return;
+    this.programTransport.invalidateDefinitions();
+    await this.audio.loadSynthdefFromData(artifact.synthdef);
+    this.programTransport.replaceDefinitions([artifact.name]);
+    this.loadedIdentity = artifact.identity;
+  }
+
   private async start(artifact: PreparedArtifact, seconds: number, token: number): Promise<void> {
     await this.audio.init();
     if (token !== this.generation) return;
@@ -361,23 +388,11 @@ export class PlaybackCore {
         await program.stop();
         return;
       }
-      this.loadedIdentity = null;
       this.audio.fadeIn();
       return;
     }
-    if (this.loadedIdentity !== artifact.identity) {
-      this.audio.clearBuffers();
-      for (const sample of artifact.samples) {
-        if (token !== this.generation) return;
-        await this.audio.loadSampleFromData(sample.bufferNum, sample.data);
-      }
-      if (token !== this.generation) return;
-      this.programTransport.invalidateDefinitions();
-      await this.audio.loadSynthdefFromData(artifact.synthdef);
-      if (token !== this.generation) return;
-      this.programTransport.replaceDefinitions([artifact.name]);
-      this.loadedIdentity = artifact.identity;
-    }
+    await this.loadSynth(artifact, token);
+    if (token !== this.generation) return;
     await this.audio.play(artifact.name);
     if (token !== this.generation) {
       this.audio.stop();
@@ -451,6 +466,33 @@ export class PlaybackCore {
           this.update({ error: null });
         return;
       }
+      const engine = this.audio.engine;
+      const node = this.parkedNode;
+      if (
+        artifact.kind === "synth" &&
+        engine &&
+        node !== null &&
+        node === this.audio.playingNodeId
+      ) {
+        await this.audio.resume();
+        if (token !== this.generation || this.active !== artifact) return;
+        let resumed = false;
+        try {
+          this.audio.setParams({ ...this.snapshot.params });
+          engine.send("/n_run", node, 1);
+          // Confirm the voice before opening the output or allowing queued edits to purge OSC.
+          await engine.sync();
+          resumed = token === this.generation;
+        } finally {
+          this.parkedNode = null;
+          if (!resumed) this.audio.stop();
+        }
+        if (!resumed) return;
+        this.audio.fadeIn();
+        this.update({ playing: true, error: null });
+        if (!this.snapshot.manual) this.startScore(artifact, this.snapshot.positionSec);
+        return;
+      }
       await this.start(
         artifact,
         this.snapshot.positionSec >= duration(artifact) ? 0 : this.snapshot.positionSec,
@@ -458,31 +500,67 @@ export class PlaybackCore {
       );
     });
   }
+  /** Pause a single synth in place so its oscillators, envelopes and delay lines resume together. */
+  pause(): Promise<void> {
+    const node = this.audio.playingNodeId;
+    const engine = this.audio.engine;
+    if (this.active?.kind !== "synth" || this.activating || node === null || !engine)
+      return this.stop();
+    if (this.parkedNode === node) {
+      ++this.generation;
+      return this.operations;
+    }
+    if (!this.snapshot.playing) return this.stop();
+    ++this.generation;
+    this.parkedNode = node;
+    this.freezeProgress();
+    const faded = this.audio.fadeOut();
+    return this.enqueue(async () => {
+      await faded;
+      if (node !== this.audio.playingNodeId) return;
+      this.audio.cancelCrossfade();
+      // The lookahead scheduler may already have sent future parameter writes to the engine.
+      try {
+        await engine.purge();
+        engine.send("/n_run", node, 0);
+        await engine.sync();
+      } catch (error) {
+        this.audio.stop();
+        this.parkedNode = null;
+        throw error;
+      }
+    });
+  }
+
   stop(identity?: string): Promise<void> {
     const pending = this.activating?.token === this.generation ? this.activating.identity : null;
     if (identity && identity !== (pending ?? this.snapshot.identity)) return Promise.resolve();
     this.activating = null;
     ++this.generation;
+    this.freezeProgress();
+    const faded = this.audio.fadeOut();
+    return this.enqueue(async () => {
+      await faded;
+      await this.silence();
+    });
+  }
+
+  private freezeProgress(): void {
     const position = this.snapshot.manual
       ? this.snapshot.positionSec
       : this.score.positionSec || this.snapshot.positionSec;
     this.score.cancel();
     this.clearTicker();
-    const faded = this.audio.fadeOut();
     this.programUnsubscribe?.();
     this.programUnsubscribe = null;
     this.update({
       playing: false,
       positionSec: position,
       params: Object.freeze(
-        this.active?.kind === "synth" && !this.snapshot.manual
+        this.active?.kind === "synth" && this.active.score && !this.snapshot.manual
           ? this.scoreValues(this.active, position)
           : { ...this.snapshot.params }
       ),
-    });
-    return this.enqueue(async () => {
-      await faded;
-      await this.silence();
     });
   }
   seek(seconds: number): Promise<void> {
@@ -501,6 +579,8 @@ export class PlaybackCore {
       manual: null,
       params: Object.freeze(artifact.kind === "synth" ? this.scoreValues(artifact, position) : {}),
     });
+    // A seek changes the synth's time origin, even when Play is queued in the same turn.
+    if (this.parkedNode !== null) return this.enqueue(() => this.silence());
     return this.enqueue(async () => {
       if (token !== this.generation) return;
       if (playing && artifact.kind === "program" && this.program) {
@@ -664,20 +744,9 @@ export class PlaybackCore {
       isPlaying: () => selected() && this.snapshot.playing,
       subscribe: (listener) => {
         const notify = (): void => {
-          const seconds = selected() ? this.snapshot.positionSec : 0;
-          const beat = (seconds * artifact.manifest.bpm) / 60;
-          const sectionIndex = sectionIndexAtBeat(artifact.manifest.sections, beat);
-          listener({
-            state: selected() && this.snapshot.playing ? "playing" : "idle",
-            beat,
-            durationBeats: artifact.manifest.durationBeats,
-            elapsedSec: seconds,
-            durationSec: duration(artifact),
-            progress: duration(artifact) > 0 ? Math.min(1, seconds / duration(artifact)) : 0,
-            sectionIndex,
-            sectionName: sectionIndex >= 0 ? artifact.manifest.sections[sectionIndex].name : null,
-            sectionCount: artifact.manifest.sections.length,
-          });
+          const current = selected();
+          const beat = current ? (this.snapshot.positionSec * artifact.manifest.bpm) / 60 : 0;
+          listener(programProgressAt(artifact.manifest, beat, current && this.snapshot.playing));
         };
         notify();
         return this.subscribe(notify);
@@ -731,11 +800,9 @@ export class PlaybackCore {
       if (token !== this.generation) return;
       await this.audio.init();
       if (token !== this.generation) return;
-      if (this.program) await this.silence();
-      for (const sample of artifact.samples)
-        await this.audio.loadSampleFromData(sample.bufferNum, sample.data);
-      this.programTransport.invalidateDefinitions();
-      await this.audio.loadSynthdefFromData(artifact.synthdef);
+      if (this.program || this.parkedNode !== null) await this.silence();
+      if (token !== this.generation) return;
+      await this.loadSynth(artifact, token);
       if (token !== this.generation) return;
       this.active = artifact;
       this.update({
@@ -754,8 +821,6 @@ export class PlaybackCore {
         this.audio.stop();
         return;
       }
-      this.programTransport.replaceDefinitions([artifact.name]);
-      this.loadedIdentity = artifact.identity;
       this.update({ playing: true });
       this.startScore(artifact, 0);
     }).finally(() => {
