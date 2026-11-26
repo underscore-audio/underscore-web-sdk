@@ -128,7 +128,9 @@ vi.mock("supersonic-scsynth", () => {
     const mockAudioContext = {
       state: "suspended",
       destination: {},
-      resume: vi.fn().mockResolvedValue(undefined),
+      resume: vi.fn(async () => {
+        mockAudioContext.state = "running";
+      }),
       createGain: vi.fn(() => mockGain),
     };
     const mockWorkletNode = {

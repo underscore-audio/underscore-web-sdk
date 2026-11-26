@@ -1,8 +1,7 @@
 /**
  * Init watchdog: timeout policy + race-timer builder.
  *
- * The audio engine guards `init()` with a watchdog because
- * supersonic-scsynth's underlying init waits for the AudioContext's
+ * After resource delivery, supersonic-scsynth init waits for the AudioContext's
  * `contextTime` to advance, which requires a user gesture under every
  * browser's autoplay policy. Without this watchdog, calling `init()`
  * before a gesture leaves the SDK in a permanent pending state with
@@ -17,12 +16,8 @@
 
 import { AudioError } from "../errors.js";
 
-/*
- * 10 s comfortably absorbs a slow WASM fetch while still failing
- * loudly when the autoplay policy is the blocker. Anything shorter
- * makes a slow first-load flake; anything longer hides the gesture
- * misconfiguration that is the typical cause of the hang.
- */
+/** Resource delivery has its own bounded budget, independent of engine boot. */
+export const RESOURCE_TIMEOUT_MS = 30_000;
 export const INIT_TIMEOUT_MS = 10_000;
 
 export interface InitTimeout {
@@ -30,6 +25,8 @@ export interface InitTimeout {
   timeoutPromise: Promise<never>;
   /** Cancels the underlying setTimeout. Safe to call multiple times. */
   cancel: () => void;
+  /** Start a fresh deadline when initialization moves to the next phase. */
+  restart: (timeoutMs: number) => void;
 }
 
 /**
@@ -43,25 +40,25 @@ export interface InitTimeout {
  */
 export function createInitTimeout(timeoutMs: number): InitTimeout {
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let rejectTimeout: (error: AudioError) => void;
   const timeoutPromise = new Promise<never>((_, reject) => {
+    rejectTimeout = reject;
+  });
+  const cancel = (): void => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+  };
+  const restart = (deadlineMs: number): void => {
+    cancel();
     timer = setTimeout(() => {
-      reject(
+      rejectTimeout(
         new AudioError(
-          `Audio engine init() did not complete within ${timeoutMs}ms. ` +
-            `This usually means the AudioContext is still suspended -- ` +
-            `browser autoplay policy requires init() to be called from a ` +
-            `user gesture handler (click, tap, keydown).`
+          `Audio initialization did not complete within ${deadlineMs}ms. ` +
+            `Check the connection and retry from a user gesture handler (click, tap, keydown).`
         )
       );
-    }, timeoutMs);
-  });
-  return {
-    timeoutPromise,
-    cancel: () => {
-      if (timer) {
-        clearTimeout(timer);
-        timer = null;
-      }
-    },
+    }, deadlineMs);
   };
+  restart(timeoutMs);
+  return { timeoutPromise, cancel, restart };
 }

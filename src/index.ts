@@ -26,7 +26,8 @@
 import { ApiClient } from "./client.js";
 import { AudioEngine } from "./audio.js";
 import { Synth } from "./synth.js";
-import { Program, ProgramTransport } from "./program.js";
+import { Program } from "./program.js";
+import { PlaybackCore, prepareSynth, prepareProgram } from "./playback.js";
 import {
   startGeneration,
   subscribeToGeneration,
@@ -106,7 +107,7 @@ const DEFAULT_API_BASE_URL = "https://underscore.audio";
 export class Underscore {
   private client: ApiClient;
   private engine: AudioEngine;
-  private programTransport: ProgramTransport;
+  private playback: PlaybackCore;
   private config: UnderscoreConfig;
   private log: Logger;
 
@@ -122,13 +123,7 @@ export class Underscore {
       logger: createLogger("audio", config.logLevel ?? "none"),
     });
 
-    /*
-     * One engine, one audible owner: the transport silences single-synth
-     * playback itself before starting a program, and this hook closes
-     * the reverse direction -- a synth play() silences program playback.
-     */
-    this.programTransport = new ProgramTransport(this.engine);
-    this.engine.onBeforePlayback = () => this.programTransport.interrupt();
+    this.playback = new PlaybackCore({ engine: this.engine });
   }
 
   /**
@@ -178,8 +173,8 @@ export class Underscore {
   /**
    * Load a synth for playback.
    *
-   * Fetches the synthdef and loads it into the audio engine.
-   * If the synth uses audio samples, they are loaded as buffers first.
+   * Fetches and validates synthdef and sample bytes without changing playback.
+   * Resources are uploaded only when play() or crossfadeIn() activates the handle.
    * The returned Synth object can be used for playback and parameter control.
    *
    * @param compositionId - The composition ID
@@ -197,20 +192,25 @@ export class Underscore {
 
     const metadata = await this.client.getSynth(compositionId, name);
 
-    /*
-     * Reload order matters: buffers must be cleared and samples uploaded
-     * BEFORE the synthdef is loaded, otherwise the new synth can briefly
-     * reference stale/missing buffer numbers on the server side.
-     */
-    this.engine.clearBuffers();
-    if (metadata.samples && metadata.samples.length > 0) {
-      this.log.info(`Loading ${metadata.samples.length} samples...`);
-      await this.engine.loadSamples(metadata.samples);
-      this.log.info("Samples loaded");
-    }
-
     const synthdefData = await this.client.fetchSynthdef(compositionId, name);
-    await this.engine.loadSynthdefFromData(synthdefData);
+    const samples = await Promise.all(
+      (metadata.samples ?? []).map(async (sample) => {
+        if (!sample.url) throw new SynthError(`Sample "${sample.id}" is missing url`);
+        const response = await fetch(sample.url);
+        if (!response.ok)
+          throw new SynthError(`Could not download sample "${sample.id}" (${response.status})`);
+        return { bufferNum: sample.bufferNum, data: await response.arrayBuffer() };
+      })
+    );
+    const artifact = prepareSynth({
+      identity: `${compositionId}/${name}`,
+      name,
+      description: metadata.description,
+      params: metadata.params,
+      score: metadata.score,
+      synthdef: synthdefData,
+      samples,
+    });
 
     const synth = new Synth(
       this.engine,
@@ -219,7 +219,8 @@ export class Underscore {
       metadata.description,
       metadata.params,
       metadata.samples,
-      metadata.score
+      metadata.score,
+      this.playback.synthDriver(artifact)
     );
     synth.markLoaded();
 
@@ -245,11 +246,9 @@ export class Underscore {
   /**
    * Load a program for playback.
    *
-   * Fetches the manifest and every synthdef it names, loads them into
-   * the audio engine, and returns a {@link Program} handle for playback,
-   * seeking, and progress subscription. Like {@link Underscore.loadSynth},
-   * this boots the audio engine, so call it from (or after) a user
-   * gesture in browsers.
+   * Fetches the manifest and every synthdef it names without changing the audio
+   * graph. The returned {@link Program} uploads those resources on play().
+   * Initialize audio from a user gesture before playback.
    *
    * @param compositionId - The composition ID
    * @param programName - The program name (optional, defaults to the latest program)
@@ -274,8 +273,13 @@ export class Underscore {
       })
     );
 
-    const program = new Program(this.programTransport, compositionId, resolved, manifest, defs);
-    await this.programTransport.ensureLoaded(program);
+    const artifact = prepareProgram({
+      identity: `${compositionId}/${resolved}`,
+      name: resolved,
+      manifest,
+      synthdefs: defs,
+    });
+    const program = this.playback.createProgram(artifact, compositionId);
 
     this.log.info(
       `Loaded program ${resolved}: ${manifest.synthdefs.length} synthdefs, ` +

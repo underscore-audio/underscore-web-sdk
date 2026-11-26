@@ -52,6 +52,7 @@ function makeHarness(startClock = 100) {
     loadSynthdefFromData: vi.fn().mockResolvedValue(undefined),
     freeSynthDefs: vi.fn(),
     stop: vi.fn(),
+    resume: vi.fn().mockResolvedValue(undefined),
   } as unknown as AudioEngine;
 
   return {
@@ -128,12 +129,15 @@ describe("Program playback", () => {
       ["/s_new", "pad", 100, 1, 10, "amp", 0.5],
     ]);
 
-    /*
-     * Anchor: t0 = 100 + 0.5 (start delay). Lookahead is 2s, so the
-     * groups at beat 0 (0s) and beat 2 (1s) are in flight; beat 6 (3s)
-     * is beyond the horizon.
-     */
-    expect(h.bundles.map((b) => b.timeTag)).toEqual([100.5, 101.5]);
+    // Setup must reach the engine before the first audible bundle.
+    expect(h.sonic.send.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      h.sonic.sendOSC.mock.invocationCallOrder[0]
+    );
+    const [first, second] = h.bundles;
+    expect(h.bundles).toHaveLength(2);
+    expect(first.timeTag).toBeGreaterThan(100);
+    expect(first.timeTag).toBeLessThanOrEqual(100.15);
+    expect(second.timeTag - first.timeTag).toBeCloseTo(1);
     expect(h.bundles[0].packets).toEqual([["/s_new", "bass", 100000, 1, 10]]);
     expect(program.isPlaying()).toBe(true);
   });
@@ -172,12 +176,10 @@ describe("Program playback", () => {
       ["/n_set", 100, "amp", 0.8],
     ]);
 
-    /*
-     * Anchor places beat 4 at now + START_DELAY: t0 = 100.5 - 4*0.5 =
-     * 98.5. Groups before beat 4 are dropped (no ghost onsets); beat 6
-     * maps to 98.5 + 3 = 101.5, inside the 2s lookahead.
-     */
-    expect(h.bundles.map((b) => b.timeTag)).toEqual([101.5]);
+    // Beat 6 sounds one second after the requested beat 4. Earlier notes stay skipped.
+    expect(h.bundles).toHaveLength(1);
+    expect(h.bundles[0].timeTag).toBeGreaterThan(101);
+    expect(h.bundles[0].timeTag).toBeLessThanOrEqual(101.15);
     expect(h.bundles[0].packets).toEqual([["/n_set", 100, "amp", 0.2]]);
   });
 
@@ -277,8 +279,7 @@ describe("Program playback", () => {
     await program.play();
     h.sends.length = 0;
 
-    /* Past the end: 8 beats at 0.5s + 0.5s start delay = 104.5. */
-    h.setClock(105);
+    h.setClock(h.bundles[0].timeTag + program.durationSec);
     vi.advanceTimersByTime(100);
 
     expect(program.isPlaying()).toBe(false);
@@ -310,8 +311,8 @@ describe("Program playback", () => {
 
     await program.play();
 
-    /* 2.6s after t0: beat 4.2, inside "outro". */
-    h.setClock(103.1);
+    /* 2.6 seconds after the opening note is beat 5.2, inside "outro". */
+    h.setClock(h.bundles[0].timeTag + 2.6);
     vi.advanceTimersByTime(100);
 
     const last = snapshots[snapshots.length - 1];

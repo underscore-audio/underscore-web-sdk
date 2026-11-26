@@ -51,15 +51,36 @@ export interface ProgramProgress {
 
 export type ProgramProgressListener = (progress: ProgramProgress) => void;
 
-/*
- * START_DELAY_SEC is the lead-in between "press play" and the first audible
- * beat: enough for setup to be processed and for the first bundles to land
- * ahead of the audio thread. The re-anchor delay for a seek is shorter
- * because the graph already exists (no setup to process), so the jump lands
- * quickly while still scheduling the first bundle ahead of the audio thread.
- */
-const START_DELAY_SEC = 0.5;
-const SEEK_DELAY_SEC = 0.12;
+export function programProgressAt(
+  manifest: ProgramManifest,
+  beat: number,
+  playing: boolean
+): ProgramProgress {
+  const secPerBeat = 60 / manifest.bpm;
+  const index = sectionIndexAtBeat(manifest.sections, beat);
+  return {
+    state: playing ? "playing" : "idle",
+    beat,
+    durationBeats: manifest.durationBeats,
+    elapsedSec: beat * secPerBeat,
+    durationSec: manifest.durationBeats * secPerBeat,
+    progress: manifest.durationBeats > 0 ? Math.min(1, beat / manifest.durationBeats) : 0,
+    sectionName: index >= 0 ? manifest.sections[index].name : null,
+    sectionIndex: index,
+    sectionCount: manifest.sections.length,
+  };
+}
+
+export interface ProgramPlaybackDriver {
+  play(): Promise<void>;
+  seek(beat: number): Promise<void>;
+  stop(): Promise<void>;
+  isPlaying(): boolean;
+  subscribe(listener: ProgramProgressListener): () => void;
+}
+
+/** Headroom for the first timestamped bundle after immediate graph or stem commands. */
+const SCHEDULE_LEAD_SEC = 0.12;
 
 /** Fixed group node IDs the manifest's setup creates (capture-kit contract). */
 const SRC_GROUP_ID = 10;
@@ -128,9 +149,24 @@ export class ProgramTransport {
     return this.state === "playing" && this.active === program;
   }
 
+  /** @internal A different transport replaced definitions in the shared engine. */
+  invalidateDefinitions(): void {
+    this.loadedKey = null;
+  }
+
+  /** @internal Keep the resident definition set canonical across synth and program playback. */
+  replaceDefinitions(names: readonly string[]): void {
+    const next = new Set(names);
+    const orphans = this.loadedDefNames.filter((name) => !next.has(name));
+    if (orphans.length) this.engine.freeSynthDefs(orphans);
+    this.loadedDefNames = [...names];
+    this.loadedKey = null;
+  }
+
   /** Upload `program`'s defs into the engine if another program's are resident. */
   async ensureLoaded(program: Program): Promise<void> {
     if (this.loadedKey === program.key) return;
+    this.invalidateDefinitions();
 
     for (const def of program.manifest.synthdefs) {
       const bytes = program.synthdefData(def);
@@ -147,10 +183,7 @@ export class ProgramTransport {
      * owned that this one does not reuse. Freeing before load would
      * leave a window with no defs if setup raced ahead.
      */
-    const nextDefs = new Set(program.manifest.synthdefs);
-    const orphans = this.loadedDefNames.filter((name) => !nextDefs.has(name));
-    if (orphans.length > 0) this.engine.freeSynthDefs(orphans);
-    this.loadedDefNames = [...program.manifest.synthdefs];
+    this.replaceDefinitions(program.manifest.synthdefs);
     this.loadedKey = program.key;
   }
 
@@ -159,9 +192,14 @@ export class ProgramTransport {
    * Rebuilds the graph from setup, optionally restores the cumulative stem
    * state at `startBeat`, then pumps every event from there onward.
    */
-  async startAt(program: Program, startBeat: number): Promise<void> {
+  async startAt(
+    program: Program,
+    startBeat: number,
+    isCurrent: () => boolean = () => true
+  ): Promise<void> {
     if (this.state === "playing") this.stopImmediate();
     await this.ensureLoaded(program);
+    if (!isCurrent()) return;
 
     const sonic = this.engine.engine;
     const encoder = this.engine.oscEncoder;
@@ -172,15 +210,14 @@ export class ProgramTransport {
     // Single engine owner: silence any single synth before taking over.
     this.engine.stop();
     await this.queueTeardown();
+    if (!isCurrent()) return;
 
-    const ctx = sonic.audioContext;
-    if (ctx?.state === "suspended") await ctx.resume();
+    await this.engine.resume();
+    if (!isCurrent()) return;
 
     /*
-     * Setup runs immediately so groups and stem/FX synths exist well
-     * before the first timestamped event (START_DELAY_SEC later). Node
-     * IDs and bus numbers are baked into the manifest, so this
-     * reconstructs the exact graph the piece was captured against.
+     * Definitions are synced and the engine is running. Enqueue the captured
+     * groups and stems in order before handing it any timestamped notes.
      */
     for (const command of program.manifest.setup) {
       sonic.send(command.cmd, ...command.args);
@@ -200,7 +237,7 @@ export class ProgramTransport {
     this.active = program;
     this.started = true;
     this.state = "playing";
-    this.anchorAndPump(program, startBeat, START_DELAY_SEC);
+    this.anchorAndPump(program, startBeat);
   }
 
   /**
@@ -208,12 +245,12 @@ export class ProgramTransport {
    * running graph is re-anchored in place so sound is continuous;
    * otherwise the program (re)starts from that beat.
    */
-  async seek(program: Program, beat: number): Promise<void> {
+  async seek(program: Program, beat: number, isCurrent: () => boolean = () => true): Promise<void> {
     const target = Math.max(0, beat);
     if (this.state === "playing" && this.started && this.active === program) {
-      await this.reanchor(program, target);
+      await this.reanchor(program, target, isCurrent);
     } else {
-      await this.startAt(program, target);
+      await this.startAt(program, target, isCurrent);
     }
   }
 
@@ -252,39 +289,41 @@ export class ProgramTransport {
    * clock and re-pump. The persistent graph is left intact -- no teardown
    * -- so the jump is continuous; only the pending schedule is rebuilt.
    */
-  private async reanchor(program: Program, beat: number): Promise<void> {
+  private async reanchor(program: Program, beat: number, isCurrent: () => boolean): Promise<void> {
     const sonic = this.engine.engine;
     const encoder = this.engine.oscEncoder;
     if (!sonic || !encoder) return;
 
     this.pump.stop();
+    if (this.tickTimer !== null) clearInterval(this.tickTimer);
+    this.tickTimer = null;
     try {
       await sonic.purge();
     } catch {
       /* best-effort: a failed purge still lets the re-anchor proceed */
     }
+    if (!isCurrent() || this.active !== program || this.state !== "playing") return;
     for (const packet of stemControlStateAtBeat(program.manifest, beat)) {
       sonic.send(...packet);
     }
-    this.anchorAndPump(program, beat, SEEK_DELAY_SEC);
+    this.anchorAndPump(program, beat);
   }
 
   /**
-   * Anchor the clock so `beat` sounds `delaySec` from now, then (re)start
-   * the pump from that beat. The single home for the delicate
-   * `t0 = now + delay - beat*secPerBeat` math shared by first-play,
-   * play-from-here, and seek; miscopying it detunes every onset.
+   * Build the schedule before anchoring the clock so preparing a dense
+   * score cannot spend the first note's scheduling headroom.
    */
-  private anchorAndPump(program: Program, beat: number, delaySec: number): void {
+  private anchorAndPump(program: Program, beat: number): void {
     const sonic = this.engine.engine!;
     const encoder = this.engine.oscEncoder!;
     const secPerBeat = 60 / program.manifest.bpm;
-    this.t0 = sonic.superClock.now() + delaySec - beat * secPerBeat;
+    const groups = this.pumpGroupsFrom(program, beat, secPerBeat);
+    this.t0 = sonic.superClock.now() + SCHEDULE_LEAD_SEC - beat * secPerBeat;
     this.pump.start({
       engine: sonic,
       encoder,
       t0: this.t0,
-      groups: this.pumpGroupsFrom(program, beat, secPerBeat),
+      groups,
     });
     if (this.tickTimer === null) {
       this.tickTimer = setInterval(this.tick, PROGRESS_TICK_MS);
@@ -358,6 +397,8 @@ export class ProgramTransport {
     sonic.send("/g_deepFree", FX_GROUP_ID);
     sonic.send("/n_free", SRC_GROUP_ID, FX_GROUP_ID);
     this.started = false;
+    // A later purge must not discard these frees while they are still queued.
+    await sonic.sync();
   }
 
   /**
@@ -389,22 +430,7 @@ export class ProgramTransport {
   }
 
   private snapshotFor(program: Program, beat: number): ProgramProgress {
-    const manifest = program.manifest;
-    const playing = this.state === "playing" && this.active === program;
-    const secPerBeat = 60 / manifest.bpm;
-    const sections: ProgramSection[] = manifest.sections;
-    const index = sectionIndexAtBeat(sections, beat);
-    return {
-      state: playing ? "playing" : "idle",
-      beat,
-      durationBeats: manifest.durationBeats,
-      elapsedSec: beat * secPerBeat,
-      durationSec: manifest.durationBeats * secPerBeat,
-      progress: manifest.durationBeats > 0 ? Math.min(1, beat / manifest.durationBeats) : 0,
-      sectionName: index >= 0 ? sections[index].name : null,
-      sectionIndex: index,
-      sectionCount: sections.length,
-    };
+    return programProgressAt(program.manifest, beat, this.isPlayingProgram(program));
   }
 
   private emitFor(program: Program, beat: number): void {
@@ -444,7 +470,8 @@ export class Program {
     compositionId: string,
     name: string,
     manifest: ProgramManifest,
-    defs: Map<string, ArrayBuffer>
+    defs: Map<string, ArrayBuffer>,
+    private driver?: ProgramPlaybackDriver
   ) {
     this.transport = transport;
     this._compositionId = compositionId;
@@ -519,7 +546,8 @@ export class Program {
    * other program first (one engine, one audible owner).
    */
   async play(): Promise<void> {
-    await this.transport.startAt(this, 0);
+    if (this.driver) await this.driver.play();
+    else await this.transport.startAt(this, 0);
   }
 
   /**
@@ -530,7 +558,8 @@ export class Program {
    * control state a from-zero playthrough would have reached by `beat`.
    */
   async seek(beat: number): Promise<void> {
-    await this.transport.seek(this, beat);
+    if (this.driver) await this.driver.seek(beat);
+    else await this.transport.seek(this, beat);
   }
 
   /** Convenience: seek to a section by index (see `sections`). */
@@ -547,12 +576,13 @@ export class Program {
    * (or none) currently owns playback.
    */
   async stop(): Promise<void> {
-    await this.transport.stop(this);
+    if (this.driver) await this.driver.stop();
+    else await this.transport.stop(this);
   }
 
   /** Whether this program is the one currently playing. */
   isPlaying(): boolean {
-    return this.transport.isPlayingProgram(this);
+    return this.driver ? this.driver.isPlaying() : this.transport.isPlayingProgram(this);
   }
 
   /**
@@ -563,6 +593,6 @@ export class Program {
    * Returns an unsubscribe function.
    */
   subscribe(listener: ProgramProgressListener): () => void {
-    return this.transport.subscribe(this, listener);
+    return this.driver ? this.driver.subscribe(listener) : this.transport.subscribe(this, listener);
   }
 }

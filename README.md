@@ -530,3 +530,40 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md).
 ## License
 
 [MIT](LICENSE)
+
+## Framework-independent playback
+
+`@underscore-audio/sdk/playback` provides `PlaybackCore`, `prepareSynth`, and
+`prepareProgram` for hosts that already obtain artifact resources themselves.
+Preparation validates bytes and metadata without initializing audio or changing
+a currently sounding source. The core owns one audio session and consumes no API
+credentials or application routing state.
+
+Initialize from a user gesture, then call `activate(prepared, { play: true })`.
+`getSnapshot()` returns a cached immutable snapshot; `subscribe(listener)` reports
+changes. Seeking takes seconds and preserves the current playing/stopped intent.
+`setVolume` controls the shared output, and `analyser` exposes visualization data
+through the engine's supported output routing.
+
+Calling `play()` while already playing repairs a suspended or interrupted audio
+context without restarting its graph, score, or manual controls. Hosts may call
+it when returning to the foreground; a denied resume rejects with a retryable
+audio error. A handle's `stop()` also cancels its pending initialization or upload,
+and cannot stop a newer source owned by another handle.
+
+For a synth, `setParam` explicitly takes manual control on the first actual value
+change. It captures every exposed parameter and the score position, holds all
+parameter automation, and retains that snapshot through subsequent edits.
+`resumeAutomation()` restores those values and that position. Stopped restoration
+stays silent; seeking clears the previous takeover. `controlsWritable` indicates
+whether every automation destination has safe authored metadata. Historical
+scores remain playable when metadata is missing or a score value exceeds its
+authored range, without misleading knobs.
+Authored parameter `step` values and switch controls keep discrete destinations
+discrete. Programs remain read-only in this entry point.
+
+The existing `Underscore`, `Synth`, and `Program` methods remain available and use
+the same core. `loadSynth` and `loadProgram` prepare resources only; playback
+activation performs uploads. Ordinary `Synth.setParam` retains its existing
+behavior and does not implicitly hold score automation. Crossfade remains
+available through `Synth.crossfadeIn()`.
